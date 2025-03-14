@@ -150,3 +150,4 @@ if total_images > 0:
     print(f"Rappel moyen: {mean_recall:.4f}")
     print(f"F1-Score moyen: {mean_f1:.4f}")
 
+                
