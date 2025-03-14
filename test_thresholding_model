@@ -1,0 +1,111 @@
+import os
+import csv
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import torchmetrics
+import cv2
+
+# Définition du device
+device = "cuda"
+
+# Définition des métriques
+miou = torchmetrics.JaccardIndex(task='binary', num_classes=1).to(device)
+precision = torchmetrics.Precision(task='binary').to(device)
+recall = torchmetrics.Recall(task='binary').to(device)
+f1_score = torchmetrics.F1Score(task='binary').to(device)
+
+# Dossier de sortie
+output_dir = "/home/killian/Annotations/Seuillage"
+os.makedirs(output_dir, exist_ok=True)
+
+# Fichier CSV pour les métriques globales
+csv_file = os.path.join(output_dir, "seuillage_results.csv")
+with open(csv_file, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["Image_ID", "IoU", "Precision", "Recall", "F1_Score", "Num_Masks", "Num_Masks_Label"])
+
+# Fichier CSV pour les mesures des masques
+csv_masks_file = os.path.join(output_dir, "mask_measurements.csv")
+with open(csv_masks_file, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["Image_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
+
+# Variables pour les moyennes
+total_miou = total_precision = total_recall = total_f1 = total_images = 0
+
+for idx, (image, mask) in enumerate(dataloader):
+    print(f"{idx}/{len(dataloader)}", end='\r')
+    img_name = dataset.img_files[idx].split("/")[-1]
+    
+    image = image.squeeze(0).cpu().numpy()
+    
+    mask = mask.squeeze(0).cpu().numpy()
+    mask = mask[:,:,2] # keep only tracheid labels
+    
+    gray = np.mean(image, axis=2) if image.ndim == 3 else image
+    _, binary = cv2.threshold(gray.astype(np.uint8), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    processed = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+    processed = cv2.morphologyEx(processed, cv2.MORPH_CLOSE, kernel)
+    
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(processed, connectivity=8)
+    
+    mask_bin = (mask > 0).astype(np.uint8)
+    
+    processed_bin = (processed > 0).astype(np.uint8)
+    
+    res_merge = torch.tensor(processed_bin, dtype=torch.bool, device=device)
+    
+    trach = torch.tensor(mask_bin, dtype=torch.bool, device=device)
+    
+    img_miou = miou(res_merge, trach).item()
+    img_precision = precision(res_merge, trach).item()
+    img_recall = recall(res_merge, trach).item()
+    img_f1 = f1_score(res_merge, trach).item()
+    
+    total_miou += img_miou
+    total_precision += img_precision
+    total_recall += img_recall
+    total_f1 += img_f1
+    total_images += 1
+    
+    num_masks_label = (mask_bin > 0).sum()
+    
+    # Sauvegarde des mesures des 3, 640, 640)masques
+    with open(csv_masks_file, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        for i in range(1, num_labels):
+            x, y = centroids[i]
+            area = stats[i, cv2.CC_STAT_AREA]
+            equivalent_diameter = np.sqrt(4 * area / np.pi)
+            writer.writerow([img_name, i, x, y, area, equivalent_diameter])
+    
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 3, 1)
+    plt.title("Image d'origine")
+    plt.imshow(image, cmap='gray')
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 2)
+    plt.title("Prédiction")
+    pred_image = res_merge.cpu().numpy()
+    for centroid in centroids:
+        plt.scatter(centroid[0], centroid[1], color='red', s=50, marker='x')
+    plt.imshow(pred_image, cmap='gray')
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 3)
+    plt.title("Label")
+    plt.imshow(trach.cpu().numpy(), cmap='gray')
+    plt.axis('off')
+    
+    plt.savefig(os.path.join(output_dir, f"Image_{idx}.png"))
+    plt.close()
+    
+if total_images > 0:
+    print(f"mIoU moyen: {total_miou / total_images:.4f}")
+    print(f"Précision moyenne: {total_precision / total_images:.4f}")
+    print(f"Rappel moyen: {total_recall / total_images:.4f}")
+    print(f"F1-Score moyen: {total_f1 / total_images:.4f}")
+
