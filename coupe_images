@@ -1,0 +1,53 @@
+
+
+def extraire_bandes(dossier_images, dossier_sortie):
+    # Créer le dossier de sortie s'il n'existe pas
+    os.makedirs(dossier_sortie, exist_ok=True)
+
+    # Parcourir toutes les images du dossier
+    for fichier in os.listdir(dossier_images):
+        print(f"{fichier}/{len(dossier_images)}", end='\r')
+        if fichier.lower().endswith(('.tif')):  
+            chemin_image = os.path.join(dossier_images, fichier)
+
+            try:
+                # Ouvrir l'image
+                image = Image.open(chemin_image)
+                largeur, hauteur = image.size  
+                print(image.size)
+
+                # Définition de la hauteur de la bande
+                hauteur_bande = 640
+
+                # Calcul des positions des bandes
+                positions = [
+                    (hauteur // 3 - hauteur_bande // 2, "ech1"),  # 1/3 en haut
+                    (hauteur // 2 - hauteur_bande // 2, "ech2"),  # Milieu
+                    (2 * hauteur // 3 - hauteur_bande // 2, "ech3")  # 2/3 en bas
+                ]
+
+                # Enlever l'extension de l'image originale
+                nom_base, _ = os.path.splitext(fichier)
+
+                # Extraction et sauvegarde des bandes
+                for y, suffixe in positions:
+                    # Vérifier que la bande est bien dans l'image
+                    if y < 0:
+                        y = 0
+                    if y + hauteur_bande > hauteur:
+                        y = hauteur - hauteur_bande
+
+                    # Découper la bande (largeur, hauteur 640)
+                    bande = image.crop((0, y, largeur, y + hauteur_bande))
+
+                    # Construire le chemin de sortie
+                    nom_sortie = f"{nom_base}_{suffixe}.jpg"
+                    chemin_sortie = os.path.join(dossier_sortie, nom_sortie)
+
+                    # Sauvegarder en JPG avec qualité 95
+                    bande.convert("RGB").save(chemin_sortie, "JPEG", quality=95)
+
+                    print(f"Bande {suffixe} extraite et enregistrée : {chemin_sortie}")
+
+            except Exception as e:
+                print(f"Erreur lors du traitement de {fichier} : {e}")
