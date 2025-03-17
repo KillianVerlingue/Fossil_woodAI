@@ -9,4 +9,5 @@ _C.*
 outputs/*
 checkpoints/*.pt
 sam2/*.pt
+sam2/*.yaml
 demo/backend/checkpoints/*.pt
