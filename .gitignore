@@ -8,4 +8,5 @@ build/*
 _C.*
 outputs/*
 checkpoints/*.pt
+sam2/*.pt
 demo/backend/checkpoints/*.pt
