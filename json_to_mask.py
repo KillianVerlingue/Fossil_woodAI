@@ -5,7 +5,7 @@ import os
 import fnmatch
 from pathlib import Path
 
-root_dir = '/home/killian/Annotations'
+root_dir = '/home/killian/Annotations/Annotations'
 
 # Définition des couleurs pour chaque classe
 CLASS_COLORS = {

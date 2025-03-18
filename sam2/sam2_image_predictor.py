@@ -104,6 +104,7 @@ class SAM2ImagePredictor:
         elif isinstance(image, Image):
             w, h = image.size
             self._orig_hw = [(h, w)]
+            print('plop image')
         else:
             raise NotImplementedError("Image format not supported")
 

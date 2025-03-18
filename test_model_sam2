@@ -1,5 +1,4 @@
-
-# import des dependences
+# Import des dépendances
 import os
 import csv
 import torch
@@ -7,54 +6,75 @@ import torchmetrics
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-# if using Apple MPS, fall back to CPU for unsupported ops
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+import glob
 
-from torch.utils.data import DataLoader
-dataset = DataLoaderSegmentation('/home/killian/Annotations/Annotations', transforms=test_transform)
+# Si Apple MPS est utilisé, repli sur le CPU pour les opérations non prises en charge
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+# On définit le DataLoader
+class DataLoaderSegmentation(Dataset):
+    def __init__(self, folder_path, transforms=None):
+        super(DataLoaderSegmentation, self).__init__()
+        self.img_files = glob.glob(os.path.join(folder_path, '*.jpg'))
+        self.mask_files = [os.path.join(folder_path, f'{img_path[:-4]}_mask.png') for img_path in self.img_files]
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        img_path = self.img_files[index]
+        mask_path = self.mask_files[index]
+        
+        # Chargement de l'image et du masque
+        image = Image.open(img_path).convert("RGB")
+        image = np.array(image)
+        
+        label = Image.open(mask_path).convert("RGB")
+        label = np.array(label)
+        
+        if self.transforms:
+            # Appliquer les transformations ici si nécessaire
+            image = self.transforms(image)
+        
+        return image, label
+
+    def __len__(self):
+        return len(self.img_files)
+
+# On définit le Dataset
+dataset = DataLoaderSegmentation('/home/killian/Annotations/Annotations')
 dataloader = DataLoader(dataset=dataset, batch_size=1)
+
 # Import de sam2
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-# checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_large.pt"
+# Chargement du modèle
 checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_tiny.pt"
-# model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
 model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
-# predictor = SAM2ImagePredictor(build_sam2(model_cfg, checkpoint))
-
 sam2 = build_sam2(model_cfg, checkpoint, device="cuda", apply_postprocessing=False)
 
 mask_generator = SAM2AutomaticMaskGenerator(sam2)
-# with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-    # predictor.set_image("/home/killian/sam2")
-    # masks, _, _ = predictor.predict("0")
-    # 🔹 Chemins vers le modèle et la configuration
-#checkpoint = "./checkpoints/sam2_hiera_large.pt"
-#model_cfg = "sam2_hiera_l.yaml"
 
-#Hyperparametres
+# Hyperparamètres pour le modèle
 model = SAM2AutomaticMaskGenerator(
     model=sam2,
-    points_per_side=20,  # Plus de points pour capturer les details
-    points_per_batch=30,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
-    pred_iou_thresh=0.7,  # Reduire pour accepter plus de mask
-    stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
+    points_per_side=20,
+    points_per_batch=30,
+    pred_iou_thresh=0.7,
+    stability_score_thresh=0.80,
     stability_score_offset=0.8,
-    crop_n_layers=2,  # Ammeliore la segmentation des petites structures
-    box_nms_thresh=0.80,  # Eviter la suppression excessive de petite structure
-    crop_n_points_downscale_factor=2,  # Adapter aux images a haute resolution
-    min_mask_region_area=15.0,  # Conserver plus de petits objets
-    use_m2m=True,  # Mode avancé 
+    crop_n_layers=2,
+    box_nms_thresh=0.80,
+    crop_n_points_downscale_factor=2,
+    min_mask_region_area=15.0,
+    use_m2m=True,
 )
 
-#on definit une fonction pour concatener tout nos mask 
+# Fonction pour concaténer les prédictions des masques
 def merge_preds(pred):
     res = torch.stack([torch.Tensor(mask['segmentation']) for mask in pred])
-    res.shape
-    res = res.any(dim=0)
-    return res
+    return res.any(dim=0)
 
 # Définition du device
 device = "cuda"
@@ -92,7 +112,7 @@ for i, (batch, mask) in enumerate(dataloader):
 
     for idx, (image, label) in enumerate(zip(batch, mask)):
         image_np = image.cpu().numpy()
-        pred = model.generate(image_np)
+        pred = mask_generator.generate(image_np)
         
         res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
         filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
