@@ -8,6 +8,42 @@ import cv2
 
 # Définition du device
 device = "cuda"
+# On définit le DataLoader
+class DataLoaderSegmentation(Dataset):
+    def __init__(self, folder_path, transforms=None):
+        super(DataLoaderSegmentation, self).__init__()
+        self.img_files = glob.glob(os.path.join(folder_path, '*.jpg'))
+        self.mask_files = [os.path.join(folder_path, f'{img_path[:-4]}_mask.png') for img_path in self.img_files]
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        img_path = self.img_files[index]
+        mask_path = self.mask_files[index]
+        
+        # Chargement de l'image et du masque
+        image = Image.open(img_path).convert("RGB")
+        image = np.array(image)
+        
+        label = Image.open(mask_path).convert("RGB")
+        label = np.array(label)
+        
+        if self.transforms:
+            # Appliquer les transformations ici si nécessaire
+            image = self.transforms(image)
+        
+        return image, label
+
+    def __len__(self):
+        return len(self.img_files)
+
+# On définit le Dataset
+dataset = DataLoaderSegmentation('/home/killian/Annotations/Annotations')
+dataloader = DataLoader(dataset=dataset, batch_size=1)
+
+# Fonction pour concaténer les prédictions des masques
+def merge_preds(pred):
+    res = torch.stack([torch.Tensor(mask['segmentation']) for mask in pred])
+    return res.any(dim=0)
 
 # Définition des métriques
 miou = torchmetrics.JaccardIndex(task='binary', num_classes=1).to(device)
