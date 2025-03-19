@@ -14,3 +14,4 @@ checkpoints/
 *.pt.1
 demo/backend/checkpoints/*.pt
 inferences/
+inferences_prompts/
