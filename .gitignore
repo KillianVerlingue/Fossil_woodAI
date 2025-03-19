@@ -13,3 +13,4 @@ sam2/*.yaml
 checkpoints/
 *.pt.1
 demo/backend/checkpoints/*.pt
+inferences/
