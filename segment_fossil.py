@@ -5,8 +5,13 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from PIL import Image
+import csv
+import cv2
+from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+import torchvision.transforms as T
+import tifffile
 
-import torch
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
@@ -27,13 +32,6 @@ mask_generator = SAM2AutomaticMaskGenerator(sam2)
     # 🔹 Chemins vers le modèle et la configuration
 #checkpoint = "./checkpoints/sam2_hiera_large.pt"
 #model_cfg = "sam2_hiera_l.yaml"
-
-import os
-import numpy as np
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torchvision.transforms as T
-import tifffile
 
 class CustomDataset(Dataset):
     def __init__(self, input_raster, tile_size=640, stride=10, transforms=None):
@@ -72,7 +70,6 @@ class CustomDataset(Dataset):
 
         return band
     
-from torch.utils.data import DataLoader
 
 dataset = CustomDataset('/home/killian/data2025/15485/X200_15485_PB1.tif', tile_size=640, stride=630)
 # dataset = CustomDataset('/home/killian/data2025/TGV4/X200_TGV4B_B-P_2.tif', tile_size=640, stride=10)
@@ -81,24 +78,17 @@ dataloader = DataLoader(dataset,batch_size=1, shuffle=False)
 #Hyperparametres
 model = SAM2AutomaticMaskGenerator(
     model=sam2,
-    points_per_side=50,  # Plus de points pour capturer les details
-    points_per_batch=50,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
+    points_per_side=30,  # Plus de points pour capturer les details
+    points_per_batch=30,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
     pred_iou_thresh=0.5,  # Reduire pour accepter plus de mask
     stability_score_thresh=0.70,  # Rzduire pour ne pas exclure trop de mask
     stability_score_offset=0.8,
-    crop_n_layers=6,  # Ammeliore la segmentation des petites structures
+    crop_n_layers=4,  # Ammeliore la segmentation des petites structures
     box_nms_thresh=0.70,  # Eviter la suppression excessive de petite structure
-    crop_n_points_downscale_factor=1.2,  # Adapter aux images a haute resolution
+    crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
     min_mask_region_area=20.0,  # Conserver plus de petits objets
     use_m2m=True,  # Mode avancé 
 )
-
-import os
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import csv
-import cv2
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -122,8 +112,8 @@ for i, image in enumerate(dataloader):
     # print(f"Image {i+1}/{len(dataloader)} - Avancement : {i/len(dataloader):.2%}", end='\r')
 
     image_np = image.squeeze(0).cpu().numpy()
-    # image_np = image_np.swapaxes(2, 0)
-    print(image_np.shape)
+    # image_np = image_np.swapaxes(0, 3)
+    # print(image_np.shape)
     pred = model.generate(image_np)
     res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
     filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
