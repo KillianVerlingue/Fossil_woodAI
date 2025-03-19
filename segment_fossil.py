@@ -36,69 +36,60 @@ import torchvision.transforms as T
 import tifffile
 
 class CustomDataset(Dataset):
-
     def __init__(self, input_raster, tile_size=640, stride=10, transforms=None):
-        # Récupère les informations sur l'image
         self.input_raster = input_raster
         self.tile_size = tile_size
         self.stride = stride
         self.transforms = transforms
 
-        # Charger seulement les dimensions de l'image pour éviter de la charger entièrement
+        # Charger les dimensions de l'image (H, W, C)
         with tifffile.TiffFile(input_raster) as tif:
-            self.raster_shape = tif.pages[0].shape
-        print(self.raster_shape)
+            self.raster_shape = tif.pages[0].shape  # (H, W, C)
+
+        self.height, self.width, self.channels = self.raster_shape
+        
+        # Calculer le nombre de tuiles en hauteur et en largeur
+        self.num_tiles_y = max(1, (self.height - self.tile_size) // self.stride + 1)
+        self.num_tiles_x = max(1, (self.width - self.tile_size) // self.stride + 1)
 
     def __len__(self):
-        # Calculer le nombre de tuiles que l'on peut extraire de l'image
-        return (self.raster_shape[1] - self.tile_size) // self.stride + 1
+        return self.num_tiles_y * self.num_tiles_x
 
     def __getitem__(self, idx):
-        # Définir la largeur de la bande centrale à charger 
-        center_width = 640
-        center_height = self.tile_size  # 640 de haut
+        # Convertir l'index linéaire en coordonnées 2D
+        tile_y = (idx // self.num_tiles_x) * self.stride
+        tile_x = (idx % self.num_tiles_x) * self.stride
 
-        # Calculer les indices pour la bande centrale 
-        start_x = max(0, (self.raster_shape[1] // 2) - (center_width // 2))
-        end_x = start_x + center_width
-        start_y = (self.raster_shape[0] // 2) - (center_height // 2)
-        end_y = start_y + center_height
+        # S'assurer qu'on ne dépasse pas les bords de l'image
+        tile_y = min(tile_y, self.height - self.tile_size)
+        tile_x = min(tile_x, self.width - self.tile_size)
 
-        # Lire seulement la bande centrale de l'image
         with tifffile.TiffFile(self.input_raster) as tif:
-            # Charger cette portion spécifique de l'image (bande centrale)
-            band = tif.pages[0].asarray()[start_y:end_y, start_x:end_x, :]
-
-        # Découper la bande pour obtenir une tuile de taille (640x640)
-        data = band[:, :, :]  # Ici, tu prends toute la largeur de la bande et la hauteur complète
-
-        # Appliquer la transformation si nécessaire
-        data = np.transpose(data, (1, 2, 0))  # Passer de (C, H, W) à (H, W, C)
+            band = tif.pages[0].asarray()[tile_y:tile_y + self.tile_size, tile_x:tile_x + self.tile_size, :]
 
         if self.transforms:
-            data = self.transforms(data)
+            band = self.transforms(band)
 
-        return data
-
-
+        return band
+    
 from torch.utils.data import DataLoader
 
-# dataset = CustomDataset('/home/killian/data2025/15485/X200_15485_PB1.tif', tile_size=640, stride=10)
-dataset = CustomDataset('/home/killian/data2025/TGV4/X200_TGV4B_B-P_2.tif', tile_size=640, stride=10)
+dataset = CustomDataset('/home/killian/data2025/15485/X200_15485_PB1.tif', tile_size=640, stride=630)
+# dataset = CustomDataset('/home/killian/data2025/TGV4/X200_TGV4B_B-P_2.tif', tile_size=640, stride=10)
 dataloader = DataLoader(dataset,batch_size=1, shuffle=False)
 
 #Hyperparametres
 model = SAM2AutomaticMaskGenerator(
     model=sam2,
-    points_per_side=10,  # Plus de points pour capturer les details
-    points_per_batch=10,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
-    pred_iou_thresh=0.7,  # Reduire pour accepter plus de mask
+    points_per_side=50,  # Plus de points pour capturer les details
+    points_per_batch=50,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
+    pred_iou_thresh=0.5,  # Reduire pour accepter plus de mask
     stability_score_thresh=0.70,  # Rzduire pour ne pas exclure trop de mask
     stability_score_offset=0.8,
-    crop_n_layers=2,  # Ammeliore la segmentation des petites structures
+    crop_n_layers=6,  # Ammeliore la segmentation des petites structures
     box_nms_thresh=0.70,  # Eviter la suppression excessive de petite structure
-    crop_n_points_downscale_factor=1,  # Adapter aux images a haute resolution
-    min_mask_region_area=15.0,  # Conserver plus de petits objets
+    crop_n_points_downscale_factor=1.2,  # Adapter aux images a haute resolution
+    min_mask_region_area=20.0,  # Conserver plus de petits objets
     use_m2m=True,  # Mode avancé 
 )
 
@@ -131,7 +122,7 @@ for i, image in enumerate(dataloader):
     # print(f"Image {i+1}/{len(dataloader)} - Avancement : {i/len(dataloader):.2%}", end='\r')
 
     image_np = image.squeeze(0).cpu().numpy()
-    image_np = image_np.swapaxes(2, 1)
+    # image_np = image_np.swapaxes(2, 0)
     print(image_np.shape)
     pred = model.generate(image_np)
     res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
@@ -144,7 +135,7 @@ for i, image in enumerate(dataloader):
         mask_np = mask_pred.cpu().numpy().astype(np.uint8)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
         
-        for j in range(1, num_labels):  # On ignore le label 0 (arrière-plan)
+        for j in range(1, num_labels):  # On ignore le label 0 (fond)
             x, y = centroids[j]
             area = stats[j, cv2.CC_STAT_AREA]
             equivalent_diameter = np.sqrt(4 * area / np.pi)
@@ -159,17 +150,17 @@ for i, image in enumerate(dataloader):
         for x, y, area, equivalent_diameter, mask_id in masks_info:
             writer.writerow([f"Image_{i}", mask_id, x, y, area, equivalent_diameter])
     
-    # # Sauvegarde de l'image de prédiction et de l'image originale
-    # plt.figure(figsize=(12, 6))
-    # plt.subplot(1, 2, 1)
-    # plt.imshow(image_np)
-    # plt.title("Image Originale")
-    # plt.axis('off')
+    # Sauvegarde de l'image de prédiction et de l'image originale
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    plt.imshow(image_np)
+    plt.title("Image Originale")
+    plt.axis('off')
     
-    # plt.subplot(1, 2, 2)
-    # plt.imshow(res_merge.cpu().numpy(), cmap='gray')
-    # plt.title("Masques Prédits")
-    # plt.axis('off')
+    plt.subplot(1, 2, 2)
+    plt.imshow(res_merge.cpu().numpy(), cmap='gray')
+    plt.title("Masques Prédits")
+    plt.axis('off')
     
-    # plt.savefig(os.path.join(output_dir, f"Image_{i}.png"))
-    # plt.close()
+    plt.savefig(os.path.join(output_dir, f"Image_{i}.png"))
+    plt.close()
