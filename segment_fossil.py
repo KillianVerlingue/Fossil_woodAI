@@ -12,37 +12,33 @@ from torch.utils.data import DataLoader
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-from centroids import get_centroids_threshold
-
-
 class CustomDataset(Dataset):
     def __init__(self, input_raster, tile_size=640, stride=10, transforms=None):
-        
         self.input_raster = input_raster
         self.tile_size = tile_size
         self.stride = stride
         self.transforms = transforms 
-        
+
         with tifffile.TiffFile(input_raster) as tif:
             self.raster_shape = tif.pages[0].shape  # (H, W, C)
 
         self.height, self.width, self.channels = self.raster_shape
-        
-        # Calculer le nombre de tuiles en hauteur et en largeur
+
+        # Ne garder qu'une seule colonne de tuiles centrée
         self.num_tiles_y = max(1, (self.height - self.tile_size) // self.stride + 1)
-        self.num_tiles_x = max(1, (self.width - self.tile_size) // self.stride + 1)
+        self.num_tiles_x = 1  # On ne prend qu'une seule bande verticale
+        self.center_x = self.width // 2  # Centre de l'image
+        self.tile_x_start = max(0, self.center_x - self.tile_size // 2)  # Assurer qu'on ne sort pas des bords
 
     def __len__(self):
-        return self.num_tiles_y * self.num_tiles_x
+        return self.num_tiles_y  # On ne parcourt que les tuiles en hauteur
 
     def __getitem__(self, idx):
-        # Convertir l'index linéaire en coordonnées 2D
-        tile_y = (idx // self.num_tiles_x) * self.stride
-        tile_x = (idx % self.num_tiles_x) * self.stride
+        tile_y = idx * self.stride
+        tile_x = self.tile_x_start  # Toujours la même valeur
 
-        # S'assurer qu'on ne dépasse pas les bords de l'image
+        # S'assurer qu'on ne dépasse pas les bords
         tile_y = min(tile_y, self.height - self.tile_size)
-        tile_x = min(tile_x, self.width - self.tile_size)
 
         with tifffile.TiffFile(self.input_raster) as tif:
             band = tif.pages[0].asarray()[tile_y:tile_y + self.tile_size, tile_x:tile_x + self.tile_size, :]
@@ -75,14 +71,14 @@ if __name__ == "__main__":
     model = SAM2AutomaticMaskGenerator(
         model=sam2,
         points_per_side=30,  # Plus de points pour capturer les details
-        points_per_batch=30,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
+        points_per_batch=20,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
         pred_iou_thresh=0.5,  # Reduire pour accepter plus de mask
         stability_score_thresh=0.70,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
         crop_n_layers=4,  # Ammeliore la segmentation des petites structures
-        box_nms_thresh=0.70,  # Eviter la suppression excessive de petite structure
+        box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
-        min_mask_region_area=20.0,  # Conserver plus de petits objets
+        min_mask_region_area=10.0,  # Conserver plus de petits objets
         use_m2m=True,  # Mode avancé 
     )
 
@@ -108,16 +104,15 @@ if __name__ == "__main__":
         # print(f"Image {i+1}/{len(dataloader)} - Avancement : {i/len(dataloader):.2%}", end='\r')
 
         image_np = image.squeeze(0).cpu().numpy()
-        
         pred = model.generate(image_np)
         res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
         filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
-        res_merge = filtered_tensor.any(dim=0).to(device)
+        res_merge = filtered_tensor.any(dim=0)
         
         # Trier les masques de droite à gauche selon la coordonnée X de leur centroïde
         masks_info = []
         for mask_id, mask_pred in enumerate(filtered_tensor):
-            mask_np = mask_pred.cpu().numpy().astype(np.uint8)
+            mask_np = mask_pred.numpy().astype(np.uint8)
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
             
             for j in range(1, num_labels):  # On ignore le label 0 (fond)
