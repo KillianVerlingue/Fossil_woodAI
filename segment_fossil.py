@@ -48,8 +48,14 @@ class CustomDataset(Dataset):
 if __name__ == "__main__":
     
     # Chemin du dossier contenant les images à traiter
-    base_path = "/home/killian/data2025/TGV4"  # Modifier selon ton besoin
-
+    # base_path = "/home/killian/data2025/TGV4"
+    # base_path = "/home/killian/data2025/TGV5"  
+    # base_path = "/home/killian/data2025/15485"
+    # base_path = "/home/killian/data2025/15492"   
+    base_path = "/home/killian/data2025/11478"  
+    # base_path = "/home/killian/data2025/13823"  
+    
+    
     # Récupérer tous les fichiers .tif
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
     if not image_paths:
@@ -92,7 +98,7 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 560  # Seuil pour filtrer les objets trop grands
+    size_threshold = 700  # Seuil pour filtrer les objets trop grands
     # (0.5060 px/µm) donc <280µm pour
 
     # Boucle sur toutes les images du dossier
@@ -147,3 +153,4 @@ if __name__ == "__main__":
             plt.close()
 
     print(f"Traitement du dossier {output_dir} terminé ")
+

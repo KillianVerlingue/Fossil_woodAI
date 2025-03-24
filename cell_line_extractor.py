@@ -1,37 +1,42 @@
 import os
 import glob
 import pandas as pd
+import numpy as np
 
 # Dossiers d'entrée et de sortie
-input_dir = "/home/killian/sam2/inferences/"
+input_dir = "/home/killian/sam2/inferences/15492/"
 output_dir = "/home/killian/sam2/Results/"
-os.makedirs(output_dir, exist_ok=True) 
+os.makedirs(output_dir, exist_ok=True)
 
-# Paramètres de filtrage
-y_target = 320  # Exemple : fixer y au milieu de l'image
-tolerance = 5  # Tolérance sur y (+/- 5 pixels)
+# Paramètres
+tolerance = 5  # Tolérance en pixels
 
 # Chercher tous les fichiers "mask_measurements_*.csv"
 csv_files = glob.glob(os.path.join(input_dir, "mask_measurements_*.csv"))
 
 for input_csv in csv_files:
-    # Extraire le nom du fichier sans le dossier
-    file_name = os.path.basename(input_csv)
-    file_name_filtered = file_name.replace(".csv", "_filtré.csv")
-
-    # Définir le chemin de sortie
-    output_csv = os.path.join(output_dir, file_name_filtered)
-
     # Charger le fichier CSV
     df = pd.read_csv(input_csv)
 
-    # Filtrer les cellules selon y avec tolérance
-    df_filtered = df[(df["Centroid_Y"] >= y_target - tolerance) & (df["Centroid_Y"] <= y_target + tolerance)]
+    # Trier de droite à gauche pour bien identifier la file cellulaire
+    df = df.sort_values(by="Centroid_X", ascending=False)
 
-    # Trier les cellules de droite à gauche (x décroissant)
-    df_filtered = df_filtered.sort_values(by="Centroid_X", ascending=False)
+    # Ajuster une droite aux données
+    coeffs = np.polyfit(df["Centroid_X"], df["Centroid_Y"], 1)  # y = ax + b
+    a, b = coeffs
 
-    # Sauvegarder le fichier filtré
+    # Filtrer les cellules proches de la ligne ajustée
+    df["distance"] = np.abs(df["Centroid_Y"] - (a * df["Centroid_X"] + b))
+    df_filtered = df[df["distance"] <= tolerance]
+
+    # Supprimer la colonne de distance
+    df_filtered = df_filtered.drop(columns=["distance"])
+
+    # Enregistrer le fichier filtré
+    file_name = os.path.basename(input_csv)
+    file_name_filtered = file_name.replace(".csv", "_filtré.csv")
+    output_csv = os.path.join(output_dir, file_name_filtered)
     df_filtered.to_csv(output_csv, index=False)
     
     print(f"Fichier filtré enregistré sous : {output_csv}")
+

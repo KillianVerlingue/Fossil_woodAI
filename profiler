@@ -1,0 +1,16 @@
+def extract_profile_from_masks(binary_mask):
+
+    height, width = binary_mask.shape
+    profile = [np.sum(binary_mask[:, col]) for col in range(width - 1, -1, -1)]
+    return profile
+
+# Appliquer sur les masques fusionnés
+profile = extract_profile_from_masks(res_merge.cpu().numpy())
+
+# Tracer le profil
+plt.figure(figsize=(10, 4))
+plt.plot(profile, label="Densité cellulaire (de droite à gauche)", color="blue")
+plt.xlabel("Position horizontale (pixels, droite -> gauche)")
+plt.ylabel("Nombre de pixels activés")
+plt.legend()
+plt.show()
