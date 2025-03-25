@@ -3,6 +3,7 @@ import glob
 import numpy as np
 import tifffile
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
 import csv
 import cv2
 
@@ -13,7 +14,7 @@ from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
 class CustomDataset(Dataset):
-    def __init__(self, input_raster, tile_size=640, stride=10, transforms=None):
+    def __init__(self, input_raster, tile_size=640, stride=630, transforms=None):
         self.input_raster = input_raster
         self.tile_size = tile_size
         self.stride = stride
@@ -42,6 +43,10 @@ class CustomDataset(Dataset):
 
         if self.transforms:
             band = self.transforms(band)
+            
+                # Convertir l'image en RGB si elle a 4 canaux (RGBA)
+        if band.shape[2] == 4:  # Si l'image est RGBA
+            band = band[:, :, :3]  # Garder seulement les 3 premiers canaux (RGB)
 
         return band
 
@@ -51,8 +56,8 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
-    # base_path = "/home/killian/data2025/15492"   
-    base_path = "/home/killian/data2025/11478"  
+    base_path = "/home/killian/data2025/15492"   
+    # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
     
     
@@ -76,8 +81,8 @@ if __name__ == "__main__":
         writer.writerow(["Image_Name", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
 
     # Chargement du modèle
-    checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_tiny.pt"
-    model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
+    checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
+    model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
 
     sam2 = build_sam2(model_cfg, checkpoint, device="cuda", apply_postprocessing=False)
     
@@ -90,9 +95,9 @@ if __name__ == "__main__":
         stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
         crop_n_layers=4,  # Ammeliore la segmentation des petites structures
-        box_nms_thresh=0.70,  # Eviter la suppression excessive de petite structure
+        box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
-        min_mask_region_area=15.0,  # Conserver plus de petits objets
+        min_mask_region_area=6.0,  # Conserver plus de petits objets
         use_m2m=True,  # Mode avancé 
     )
 
@@ -128,29 +133,66 @@ if __name__ == "__main__":
                     area = stats[j, cv2.CC_STAT_AREA]
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
                     masks_info.append((x, y, area, equivalent_diameter, mask_id))
-                    
-            masks_info.sort(reverse=True, key=lambda m: m[0])
 
-            with open(csv_masks_file, mode='a', newline='') as file:
+                    # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
+            masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
+
+                    # Définir le chemin spécifique pour chaque image
+            csv_image_file = os.path.join(output_dir, f"mask_measurements_{image_name}.csv")
+
+            # Créer le fichier CSV pour l'image en cours et écrire l'entête
+            with open(csv_image_file, mode='w', newline='') as file:
                 writer = csv.writer(file)
+                writer.writerow(["Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
+                
+                # Enregistrer les masques pour cette image spécifique
                 for x, y, area, equivalent_diameter, mask_id in masks_info:
-                    writer.writerow([image_name, mask_id, x, y, area, equivalent_diameter])
+                    writer.writerow([mask_id, x, y, area, equivalent_diameter])
 
-            # Sauvegarde des images
+            # Création de la figure pour afficher l'image et les masques prédits
             plt.figure(figsize=(12, 6))
+
+            # Affichage de l'image originale
             plt.subplot(1, 2, 1)
             plt.imshow(image_np)
             plt.title("Image Originale")
             plt.axis('off')
 
+            # Affichage des masques prédits
             plt.subplot(1, 2, 2)
             plt.imshow(res_merge.cpu().numpy(), cmap='gray')
             plt.title("Masques Prédits")
             plt.axis('off')
 
+            # Ajout des IDs des masques sur l'image des masques prédits
+            for x, y, area, equivalent_diameter, mask_id in masks_info:
+                text = plt.text(
+                    x, y, str(mask_id), 
+                    color='blue', fontsize=6, fontweight='bold', ha='center', va='center'
+                )
+                # Ajout d'un contour noir pour améliorer la lisibilité
+                text.set_path_effects([path_effects.Stroke(linewidth=1, foreground='black'), path_effects.Normal()])
+
+            # Sauvegarde de l'image avec les IDs des masques annotés
             output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
-            plt.savefig(output_img_path)
+            plt.savefig(output_img_path, dpi=300)  # Augmentation de la résolution pour plus de lisibilité
             plt.close()
+
+            # # Sauvegarde des images
+            # plt.figure(figsize=(12, 6))
+            # plt.subplot(1, 2, 1)
+            # plt.imshow(image_np)
+            # plt.title("Image Originale")
+            # plt.axis('off')
+
+            # plt.subplot(1, 2, 2)
+            # plt.imshow(res_merge.cpu().numpy(), cmap='gray')
+            # plt.title("Masques Prédits")
+            # plt.axis('off')
+
+            # output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
+            # plt.savefig(output_img_path)
+            # plt.close()
 
     print(f"Traitement du dossier {output_dir} terminé ")
 
