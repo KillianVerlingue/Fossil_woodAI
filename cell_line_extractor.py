@@ -10,7 +10,9 @@ output_dir = "/home/killian/sam2/Results/"
 os.makedirs(output_dir, exist_ok=True)
 
 # Paramètres
-tolerance = 5  # Tolérance en pixels
+tolerance = 10  # Tolérance en pixels
+N = 50         # Nombre de points à prendre à droite et à gauche
+distance_threshold = 15  # Seuil de distance pour filtrer les cellules éloignées de la droite de régression
 
 # Chercher tous les fichiers "mask_measurements_*.csv"
 csv_files = glob.glob(os.path.join(input_dir, "mask_measurements_*.csv"))
@@ -44,35 +46,59 @@ for input_csv in csv_files:
         if df_tile.empty:
             continue
 
-        # Ajuster une droite aux centroids pour capter l'orientation locale du bois
-        coeffs = np.polyfit(df_tile["Centroid_X"], df_tile["Centroid_Y"], 1)  # y = ax + b
-        a, b = coeffs
+        # Ajuster une droite sur les coordonnées (Centroid_X, Centroid_Y) pour estimer la direction
+        coeffs = np.polyfit(df_tile["Centroid_X"], df_tile["Centroid_Y"], 1)
+        a, b = coeffs  # Coefficients de la droite y = a * x + b
 
-        # Calculer la distance de chaque point à la droite ajustée
-        df_tile["distance"] = np.abs(df_tile["Centroid_Y"] - (a * df_tile["Centroid_X"] + b))
+        # Trier les cellules par 'Centroid_X' de droite à gauche
+        df_tile_sorted = df_tile.sort_values(by="Centroid_X", ascending=False)
 
-        # Filtrer les cellules proches de la ligne ajustée
-        df_filtered = df_tile[df_tile["distance"] <= tolerance].copy()
-        df_filtered.drop(columns=["distance"], inplace=True)
+        # Initialiser une liste pour les cellules filtrées
+        filtered_cells = []
+        previous_x = None  # Variable pour vérifier si la cellule suivante est sur le même X
+        previous_y = None  # Variable pour suivre la coordonnée Y de la cellule précédente
+
+        for _, row in df_tile_sorted.iterrows():
+            current_x = row["Centroid_X"]
+            current_y = row["Centroid_Y"]
+
+            # Calculer la coordonnée Y théorique sur la droite de régression pour la position X donnée
+            y_theorique = a * current_x + b
+
+            # Calculer la distance entre la cellule et la droite de régression (distance absolue)
+            distance_to_line = abs(current_y - y_theorique)
+
+            # Si la distance est inférieure au seuil et que la cellule est suffisamment éloignée sur l'axe X
+            if distance_to_line < distance_threshold:
+                # Ajouter la cellule si elle est proche de la droite et suffisamment éloignée de la précédente
+                if previous_x is None or abs(current_x - previous_x) > tolerance:
+                    filtered_cells.append(row)
+                    previous_x = current_x  # Mettre à jour le X précédent
+                    previous_y = y_theorique  # Utiliser la coordonnée Y ajustée à la droite
+
+        # Convertir les résultats en DataFrame
+        df_filtered = pd.DataFrame(filtered_cells)
 
         # Ajouter l'identifiant de la tuile
         df_filtered["Tile_ID"] = tile
 
-        # Trier les cellules filtrées de droite à gauche
-        df_filtered = df_filtered.sort_values(by="Centroid_X", ascending=False)
-
         # Ajouter aux résultats globaux
         all_filtered_data.append(df_filtered)
 
-        # Visualisation pour chaque tuile
+        # Visualisation
         plt.figure(figsize=(8, 6))
-        plt.scatter(df_tile["Centroid_X"], df_tile["Centroid_Y"], color='gray', label="Toutes les cellules", alpha=0.5)
-        plt.scatter(df_filtered["Centroid_X"], df_filtered["Centroid_Y"], color='red', label="File cellulaire sélectionnée")
+        # Toutes les cellules en gris
+        plt.scatter(df_tile_sorted["Centroid_X"], df_tile_sorted["Centroid_Y"],
+                    color='gray', label="Cellules")
+        # Cellules filtrées en rouge
+        plt.scatter(df_filtered["Centroid_X"], df_filtered["Centroid_Y"],
+                    color='red', label="Cellules dans la file")
 
-        # Tracer la ligne ajustée
-        x_range = np.linspace(df_tile["Centroid_X"].min(), df_tile["Centroid_X"].max())
+        # Tracer la droite de régression
+        x_min, x_max = df_tile_sorted["Centroid_X"].min(), df_tile_sorted["Centroid_X"].max()
+        x_range = np.linspace(x_min, x_max, 200)
         y_range = a * x_range + b
-        plt.plot(x_range, y_range, color='blue', label="Orientation du bois")
+        plt.plot(x_range, y_range, color='blue', label="Direction estimée")
 
         plt.xlabel("Centroid_X")
         plt.ylabel("Centroid_Y")

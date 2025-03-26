@@ -137,17 +137,24 @@ if __name__ == "__main__":
                     # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
             masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
 
-                   # Définir le chemin spécifique pour chaque image
+            # Définir le chemin spécifique pour chaque image
             csv_image_file = os.path.join(output_dir, f"mask_measurements_{image_name}.csv")
 
-            # Créer le fichier CSV pour l'image en cours et écrire l'entête
-            with open(csv_image_file, mode='w', newline='') as file:
+            # Vérifier si le fichier existe déjà (pour ne pas réécrire l'entête à chaque tuile)
+            file_exists = os.path.isfile(csv_image_file)
+
+            # Ouvrir en mode append ('a') pour ajouter les nouvelles tuiles
+            with open(csv_image_file, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(["Tile_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
+
+                # Écrire l'entête uniquement si le fichier n'existe pas encore
+                if not file_exists:
+                    writer.writerow(["Tile_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
                 
-                # Enregistrer les masques pour cette image spécifique
+                # Ajouter les données des masques pour cette tuile
                 for x, y, area, equivalent_diameter, mask_id in masks_info:
                     writer.writerow([f"Image_{i}", mask_id, x, y, area, equivalent_diameter])
+
 
             # Création de la figure pour afficher l'image et les masques prédits
             plt.figure(figsize=(12, 6))
