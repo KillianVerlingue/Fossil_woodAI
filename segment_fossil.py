@@ -56,8 +56,8 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
-    base_path = "/home/killian/data2025/15492"   
-    # base_path = "/home/killian/data2025/11478"  
+    # base_path = "/home/killian/data2025/15492"   
+    base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
     
     
@@ -128,12 +128,21 @@ if __name__ == "__main__":
                 mask_np = mask_pred.numpy().astype(np.uint8)
                 num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
                 
+                
+                px_to_um = 1 / 0.5220  # 1 µm = 1 / 0.5220 pixel
+
                 for j in range(1, num_labels):
                     x, y = centroids[j]
                     area = stats[j, cv2.CC_STAT_AREA]
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
-                    masks_info.append((x, y, area, equivalent_diameter, mask_id))
 
+                    # Conversion en µm
+                    x_um = x * px_to_um
+                    y_um = y * px_to_um
+                    area_um = area * (px_to_um ** 2)  # Conversion de l'aire en µm²
+                    equivalent_diameter_um = equivalent_diameter * px_to_um  # Conversion du diamètre équivalent en µm
+
+                    masks_info.append((x_um, y_um, area_um, equivalent_diameter_um, mask_id))
                     # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
             masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
 

@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Dossiers d'entrée et de sortie
-input_dir = "/home/killian/sam2/inferences/15492/"
+input_dir = "/home/killian/sam2/inferences/15485/"
 output_dir = "/home/killian/sam2/Results/"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -104,6 +104,9 @@ for input_csv in csv_files:
         plt.ylabel("Centroid_Y")
         plt.title(f"File cellulaire - {tile} ({os.path.basename(input_csv)})")
         plt.legend()
+
+        plt.gca().invert_yaxis()  # Inverse uniquement l'axe Y pour retrouver l'orientation d'origine
+
 
         # Sauvegarde de l'image
         output_image = os.path.join(output_dir, f"{os.path.basename(input_csv).replace('.csv', f'_{tile}.png')}")
