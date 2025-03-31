@@ -56,8 +56,8 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
-    # base_path = "/home/killian/data2025/15492"   
-    base_path = "/home/killian/data2025/11478"  
+    base_path = "/home/killian/data2025/15492"   
+    # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
     
     
@@ -137,8 +137,6 @@ if __name__ == "__main__":
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
 
                     # Conversion en µm
-                    x_um = x * px_to_um
-                    y_um = y * px_to_um
                     area_um = area * (px_to_um ** 2)  # Conversion de l'aire en µm²
                     equivalent_diameter_um = equivalent_diameter * px_to_um  # Conversion du diamètre équivalent en µm
 
@@ -168,47 +166,47 @@ if __name__ == "__main__":
             # Création de la figure pour afficher l'image et les masques prédits
             plt.figure(figsize=(12, 6))
 
-            # Affichage de l'image originale
-            plt.subplot(1, 2, 1)
-            plt.imshow(image_np)
-            plt.title("Image Originale")
-            plt.axis('off')
-
-            # Affichage des masques prédits
-            plt.subplot(1, 2, 2)
-            plt.imshow(res_merge.cpu().numpy(), cmap='gray')
-            plt.title("Masques Prédits")
-            plt.axis('off')
-
-            # Ajout des IDs des masques sur l'image des masques prédits
-            for x, y, area, equivalent_diameter, mask_id in masks_info:
-                text = plt.text(
-                    x, y, str(mask_id), 
-                    color='blue', fontsize=6, fontweight='bold', ha='center', va='center'
-                )
-                # Ajout d'un contour noir pour améliorer la lisibilité
-                text.set_path_effects([path_effects.Stroke(linewidth=1, foreground='black'), path_effects.Normal()])
-
-            # Sauvegarde de l'image avec les IDs des masques annotés
-            output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
-            plt.savefig(output_img_path, dpi=300)  # Augmentation de la résolution pour plus de lisibilité
-            plt.close()
-
-            # # Sauvegarde des images
-            # plt.figure(figsize=(12, 6))
+            # # Affichage de l'image originale
             # plt.subplot(1, 2, 1)
             # plt.imshow(image_np)
             # plt.title("Image Originale")
             # plt.axis('off')
 
+            # # Affichage des masques prédits
             # plt.subplot(1, 2, 2)
             # plt.imshow(res_merge.cpu().numpy(), cmap='gray')
             # plt.title("Masques Prédits")
             # plt.axis('off')
 
+            # # Ajout des IDs des masques sur l'image des masques prédits
+            # for x, y, area, equivalent_diameter, mask_id in masks_info:
+            #     text = plt.text(
+            #         x, y, str(mask_id), 
+            #         color='blue', fontsize=6, fontweight='bold', ha='center', va='center'
+            #     )
+            #     # Ajout d'un contour noir pour améliorer la lisibilité
+            #     text.set_path_effects([path_effects.Stroke(linewidth=1, foreground='black'), path_effects.Normal()])
+
+            # # Sauvegarde de l'image avec les IDs des masques annotés
             # output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
-            # plt.savefig(output_img_path)
+            # plt.savefig(output_img_path, dpi=300)  # Augmentation de la résolution pour plus de lisibilité
             # plt.close()
+
+            # Sauvegarde des images
+            plt.figure(figsize=(12, 6))
+            plt.subplot(1, 2, 1)
+            plt.imshow(image_np)
+            plt.title("Image Originale")
+            plt.axis('off')
+
+            plt.subplot(1, 2, 2)
+            plt.imshow(res_merge.cpu().numpy(), cmap='gray')
+            plt.title("Masques Prédits")
+            plt.axis('off')
+
+            output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
+            plt.savefig(output_img_path)
+            plt.close()
 
     print(f"Traitement du dossier {output_dir} terminé ")
 
