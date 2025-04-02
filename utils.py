@@ -14,6 +14,13 @@ def get_centroids_threshold(image):
 
     return centroids
 
+def assemble_tiles(tiles, num_tiles_x, tile_size, width):
+    assembled_image = np.zeros((tile_size, width, 3), dtype=np.uint8)
+    for idx, tile in enumerate(tiles):
+        tile_x = width - tile_size - (idx * (tile_size - 10))
+        tile_x = max(0, tile_x)
+        assembled_image[:, tile_x:tile_x + tile_size, :] = tile
+    return assembled_image
 
 def plot_results(output_path, image_np, res_merge, centroids=None):
     
