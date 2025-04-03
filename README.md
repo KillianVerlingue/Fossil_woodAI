@@ -8,6 +8,7 @@ The main objective is to automate the extraction of anatomical characteristics f
 
 This project is part of a Master's 2 course in palaeoecology, focusing on the analysis of plant growth in the Permian and Triassic periods. The approach remains exploratory, with the aim of assessing the potential of deep learning techniques for reconstructing palaeoenvironments from fossil wood.
 
-![X200_TGV4B_B-P_1 tif_Image_8](https://github.com/user-attachments/assets/b2e72f85-ed3c-41af-8112-ba4820fa7f16)
+![X200_15485_PB4 tif_Image_7](https://github.com/user-attachments/assets/994621e9-0a64-44a3-8ec6-04a828a4c4e7)
+
 
 
