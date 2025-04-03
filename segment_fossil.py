@@ -53,8 +53,8 @@ class CustomDataset(Dataset):
 if __name__ == "__main__":
     
     # Chemin du dossier contenant les images à traiter
-    base_path = "/home/killian/data2025/TGV4"
-    # base_path = "/home/killian/data2025/TGV5"  
+    # base_path = "/home/killian/data2025/TGV4"
+    base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"   
     # base_path = "/home/killian/data2025/11478"  
@@ -89,9 +89,9 @@ if __name__ == "__main__":
     #Hyperparametres
     model = SAM2AutomaticMaskGenerator(
         model=sam2,
-        points_per_side=30,  # Plus de points pour capturer les details
+        points_per_side=40,  # Plus de points pour capturer les details
         points_per_batch=30,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
-        pred_iou_thresh=0.6,  # Reduire pour accepter plus de mask
+        pred_iou_thresh=0.65,  # Reduire pour accepter plus de mask
         stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
         crop_n_layers=4,  # Ammeliore la segmentation des petites structures
