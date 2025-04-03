@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import os
+import re
 
 def get_centroids_threshold(image):
     gray = np.mean(image, axis=2) if image.ndim == 3 else image
@@ -39,3 +40,7 @@ def plot_results(output_path, image_np, res_merge, centroids=None):
     
     plt.savefig(output_path)
     plt.close()
+
+def numerical_sort(value):
+    numbers = re.findall(r'\d+', value)
+    return int(numbers[0]) if numbers else 0

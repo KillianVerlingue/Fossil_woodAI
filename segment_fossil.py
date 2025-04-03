@@ -54,12 +54,11 @@ if __name__ == "__main__":
     
     # Chemin du dossier contenant les images à traiter
     # base_path = "/home/killian/data2025/TGV4"
-    base_path = "/home/killian/data2025/TGV5"  
-    # base_path = "/home/killian/data2025/15485"
+    # base_path = "/home/killian/data2025/TGV5"  
+    base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"   
     # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
-    
     
     # Récupérer tous les fichiers .tif
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
@@ -134,9 +133,10 @@ if __name__ == "__main__":
                     x, y = centroids[j]
                     area = stats[j, cv2.CC_STAT_AREA]
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
-
+                     
                     # Conversion en µm
-                    area_um = area * (px_to_um ** 2)  # Conversion de l'aire en µm²
+                    area_um = area * (px_to_um ** 2) # Conversion de l'aire en µm²
+                
                     equivalent_diameter_um = equivalent_diameter * px_to_um  # Conversion du diamètre équivalent en µm
 
                     masks_info.append((x,y,area_um, equivalent_diameter_um, mask_id))

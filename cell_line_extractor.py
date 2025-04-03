@@ -3,6 +3,7 @@ import glob
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from utils import numerical_sort
 
 # Dossiers d'entrée et de sortie
 input_dir = "/home/killian/sam2/inferences/15492/"
@@ -19,12 +20,14 @@ os.makedirs(csv_dir, exist_ok=True)
 tolerance = 10 # Tolérance en pixels
 N = 70         # Nombre de points à prendre à droite et à gauche
 distance_threshold = 10 # Seuil de distance pour filtrer les cellules éloignées de la droite de régression
-gap_threshold = 12  # Seuil de distance pour détecter un hiatus
+gap_threshold = 20  # Seuil de distance pour détecter un hiatus
 num_lines = 50 # Nombre de droites régréssion 
 max_slope = 0.3 # évite de prendre les diagonales
 positive_slope_weight = 1.6 #pondère pour donner plus d'importance au pente positives 
+max_area = 100 #filtre les cellules abérantes selon le seuil en µm
+
 # Chercher tous les fichiers "mask_measurements_*.csv"
-csv_files = glob.glob(os.path.join(input_dir, "mask_measurements_*.csv"))
+csv_files = sorted(glob.glob(os.path.join(input_dir, "mask_measurements_*.csv")), key=numerical_sort)
 
 for input_csv in csv_files:
     # Charger le fichier CSV
@@ -79,54 +82,6 @@ for input_csv in csv_files:
             x_range = np.linspace(x_min, x_max, N)
             y_best = a * x_range + b
 
-        # n = len(df_tile)
-        # third = n // 3
-        # df_tile["xquants"] = pd.qcut(df_tile["Centroid_X"],10,labels=False)
-        # df_tile["yquants"] = pd.qcut(df_tile["Centroid_Y"],10,labels=False)
-      
-        # # Diviser les données en trois parties égales sur l'axe X avec Centroid_X"
-        # df_first = df_tile.iloc[:third]
-        # df_second = df_tile.iloc[third:2*third]
-        # df_third = df_tile.iloc[2*third:]
-        # # Ajuster une régression linéaire sur chaque segment (1/3, 2/3, et 3/3)
-        # coeffs_first = np.polyfit(df_first["Centroid_X"], df_first["Centroid_Y"], 1)
-        # coeffs_second = np.polyfit(df_second["Centroid_X"], df_second["Centroid_Y"], 1)
-        # coeffs_third = np.polyfit(df_third["Centroid_X"], df_third["Centroid_Y"], 1)
-
-        # # Extraire les coefficients pour chaque segment
-        # a1, b1 = coeffs_first
-        # a2, b2 = coeffs_second
-        # a3, b3 = coeffs_third
-
-        # # Créer un ensemble de points pour ajuster la droite finale
-        # # Placer les droites de régression pour chaque segment
-        # x_min, x_max = df_tile["Centroid_X"].min(), df_tile["Centroid_X"].max()
-        # x_range = np.linspace(x_min, x_max, N)
-
-        # # Calculer les valeurs Y pour chaque segment
-        # y_first = a1 * x_range + b1
-        # y_second = a2 * x_range + b2
-        # y_third = a3 * x_range + b3
-
-        # # Calculer la droite finale en ajustant pour minimiser l'écart entre les trois droites
-        # # Cela revient à minimiser l'erreur entre les trois droites
-
-        # # Calculer les erreurs 
-        # error_first = np.sum((y_first - (a1 * x_range + b1))**2)
-        # error_second = np.sum((y_second - (a2 * x_range + b2))**2)
-        # error_third = np.sum((y_third - (a3 * x_range + b3))**2)
-
-        # # Ajuster la droite finale (moyenne pondérée des trois droites)
-        # final_a = (a1 + a2 + a3) / 3
-        # final_b = (b1 + b2 + b3) / 3
-
-        # # Calculer les valeurs Y pour la droite finale ajustée
-        # y_final = final_a * x_range + final_b
-       
-        # # Ajuster une droite sur les coordonnées (Centroid_X, Centroid_Y) pour estimer la direction
-        # coeffs = np.polyfit(df_tile["Centroid_X"], df_tile["Centroid_Y"], 1)
-        # a, b = coeffs
-       
         filtered_cells = []
         previous_x = None
         previous_y = None
@@ -134,7 +89,13 @@ for input_csv in csv_files:
         # Itérer sur les cellules en suivant la direction de la régression
         for _, row in df_tile.iterrows():
             current_x, current_y = row["Centroid_X"], row["Centroid_Y"]
-            
+            area = row["Area"]  # Assurez-vous que la colonne 'Area' existe dans votre DataFrame
+            area_um = area * (0.5220 ** 2)  # Conversion en µm²
+
+            # Vérification de la taille de la cellule
+            if area_um > max_area:
+                continue  # Ignorer les petites cellules
+
             # Calculer la position théorique de Y en fonction de la droite finale ajustée
             y_theorique = a * current_x + b
             
@@ -165,10 +126,10 @@ for input_csv in csv_files:
                 thickness = "NA"
             else:
                 thickness = abs(distance -(0.5 * diameter1) + distance -(0.5*diameter2))
+                thickness = thickness * 0.5220 # on convertit en µm
             thicknesses.append(thickness)
 
-        # Pour la dernière cellule, on met NaN pour signaler l'absence de calcul
-        
+        # Pour la dernière cellule, on met Na pour signaler l'absence de calcul
         thicknesses.append(0)  # Pour la dernière cellule on met 0 mais à rettiré si on travail sur bande
         df_filtered["2P_thickness"] = thicknesses
 
@@ -181,12 +142,6 @@ for input_csv in csv_files:
         # Cellules filtrées en rouge
         plt.scatter(df_filtered["Centroid_X"], df_filtered["Centroid_Y"],
                     color='red', label="Cellules dans la file")
-
-        # # Tracer les trois droites de régression
-        # plt.plot(x_range, y_first, color='red', label="Régression 1er tiers")
-        # plt.plot(x_range, y_second, color='green', label="Régression 2e tiers")
-        # plt.plot(x_range, y_third, color='blue', label="Régression 3e tiers")
-
         # Tracer la droite finale ajustée
         plt.plot(x_range, y_best, color='purple', linestyle='--', label="Régression finale ajustée")
         plt.xlabel("Centroid_X")
@@ -201,6 +156,7 @@ for input_csv in csv_files:
         plt.close()
 
     if all_filtered_data:
+        all_filtered_data = sorted(all_filtered_data, key=lambda df: numerical_sort(df["Tile_ID"].iloc[0]))
         df_final = pd.concat(all_filtered_data, ignore_index=True)
         # Sauvegarde du fichier CSV 
         output_csv = os.path.join(csv_dir, os.path.basename(input_csv).replace(".csv", "_final.csv"))
