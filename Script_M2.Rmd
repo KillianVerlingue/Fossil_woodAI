@@ -1,0 +1,331 @@
+---
+title: "Script_stage_M2"
+author: "KV"
+date: "2025-01-30"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+library
+
+```{r}
+library(ggplot2)
+library(ade4)
+library(dplyr)
+library(tidyr)
+library(zoo)
+```
+
+Import des dataset
+
+```{r}
+X15485<-read.csv("15485.csv", header=T)# Glossopteris
+X15492<-read.csv("15492.csv", header=T)# Glossopteris
+
+X11478<-read.csv("11478.csv", header=T)# Corystospermes
+X13823<-read.csv("13823.csv", header=T)# Corystospermes
+
+TGV4ID<-read.csv("TGV4_ID.csv", header=T)# Dadoxylon
+TGV4<-read.csv("TGV4.csv", header=T)# Dadoxylon
+
+TGV5ID<-read.csv("TGV4_ID.csv", header=T)# Dadoxylon
+TGV5<-read.csv("TGV4.csv", header=T)# Dadoxylon
+
+X15492$X2P_thickness <- na.approx(X15492$X2P_thickness, rule=2)
+
+```
+
+Extraction automatique de subsets
+
+```{r}
+Data= X15492  #on met juste le jeu de donnée de notre choix en entrée
+# Extraire les valeurs possibles de PB
+PB_num <- unique(Data$Image[grepl("^PB[0-9]+$", X15492$Image)])
+
+# Extraire les valeurs uniques de Tile_ID
+tile_ids <- unique(Data$Tile_ID)
+
+# Initialiser des listes de résultats
+resultats_PB <- list()
+resultats_tile <- list()
+
+# Boucle sur les valeurs PB1, PB2, ..., PBn
+for (PB in PB_num) {
+  # Filtrer les données correspondant à PB
+  PB_subset <- Data[Data$Image == PB, ]
+  resultats_PB[[PB]] <- PB_subset$Image  # Stocker les valeurs associées à PB
+
+  # Boucle sur les Tile_ID
+  for (tile in tile_ids) {
+    # Stocker les valeurs d'Equivalent_Diameter pour chaque Tile_ID
+    resultats_tile[[paste(PB, tile, sep = "_")]] <- PB_subset$Equivalent_Diameter[PB_subset$Tile_ID == tile]
+  }
+}
+
+# Vérification des résultats
+str(resultats_PB)
+str(resultats_tile)
+```
+
+# Analyses de Cernes
+
+## Bois d'Autun
+
+### Identifications des specimens
+
+stats descriptive
+
+```{r}
+summary(TGV4ID)
+sd(TGV4ID$trach_diameter_TR, na.rm=T)
+sd(TGV4ID$trach_diameter_TA, na.rm=T)
+```
+
+## Glossopteris d'antarctique
+
+### mesures des cernes
+
+15485
+
+```{r}
+X15485$nb_mesures <- 1:length(X15485$X2p_Thik) 
+
+plot(X15485$X2p_Thik~X15485$nb_mesures,type="l",
+     main="Mesure cumulé des doubles paroies (15485)",
+     xlab="n_cell",
+     ylab="Taille des double-paroi en µm",
+     col="purple")
+
+head(X15492)
+```
+
+15492
+
+```{r}
+
+lines(X15492$X2p_Thik,type="l",
+     main="Mesure cumulé des doubles paroies (15492)",
+     xlab="n_cell",
+     ylab="Taille des double-paroi en µm",
+     col="purple")
+
+plot(X15492$lumen_diameter,type="l",
+     main="Mesure cumulé des lumens (15492)",
+     xlab="n_cell",
+     ylab="Taille des double-paroi en µm",
+     col="red")
+lines(X15492$X2P_thickness)
+barplot(Mask$Equivalent_Diameter)
+# Choisir une fenêtre de lissage (ex. 10 points)
+
+window_size <- 10
+X15492$smoothed <- rollapply(X15492$Equivalent_Diameter, width = window_size, FUN = mean, fill = NA, align = "center")
+
+X15492$X2P_thickness_smooth <- rollapply(X15492$X2P_thickness, width = 5, FUN = mean, fill = NA, align = "center", na.rm = TRUE)
+# Refaire le plot avec la courbe lissée
+X15492$nb_cell <- 1:length(X15492$smoothed) 
+plot(X15492$nb_cell, X15492$smoothed, type = "l", col = "blue", lwd = 2, 
+     xlab = "n_cell", ylab = "Taille des double-parois en µm",
+     main = "Mesure cumulée des lumens (lissée)")
+abline(h=mean(X15492$Equivalent_Diameter), col = "red", lwd= 2)
+# Ajouter la courbe lissée
+lines(X15492$nb_cell, X15492$X2P_thickness, col = "red", lwd = 2)
+```
+
+```{r}
+X15492_long <- X15492 %>%
+  pivot_longer(cols = c("Earlywood", "Latewood"), names_to = "Wood_Type", values_to = "Value")
+ggplot(X15492_long, aes(x = factor(Nb_Ring), y = Value, fill = Wood_Type)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Numéro du cerne",
+    y = "Largeur du cerne (en µm)",
+    title = "Nombre de cernes (gradient moelle-écorce) 15492"
+  ) +
+  geom_point(data = X15492, aes(x = factor(Nb_Ring), y = Ring, size = Nb_FRing),color = "red", shape = 21, fill = "yellow") +
+  scale_fill_manual(values = c("Earlywood" = "orange", "Latewood" = "orange4")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+X15485_long <- X15485 %>%
+  pivot_longer(cols = c("Earlywood", "Latewood"), names_to = "Wood_Type", values_to = "Value") %>%
+  drop_na(Value)
+
+
+ggplot(X15485_long, aes(x = factor(Nb_Ring), y = Value, fill = Wood_Type)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Numéro du cerne",
+    y = "Largeur du cerne (en µm)",
+    title = "Nombre de cernes (gradient moelle-écorce) 15485"
+  ) +
+  geom_point(
+    data = X15485 %>% filter(Nb_FRing > 0),  # Exclure Nb_FRing == 0
+    aes(x = factor(Nb_Ring), y = Ring, size = Nb_FRing),
+    color = "red", shape = 21, fill = "yellow"
+  ) +
+  scale_fill_manual(values = c("Earlywood" = "orange", "Latewood" = "orange4")) +
+  scale_size_continuous(breaks = unique(X15485$Nb_FRing[X15485$Nb_FRing > 0])) + 
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+
+```
+
+## Corystospermes d'Antarctique
+
+### mesures des cernes
+
+11478
+
+```{r}
+X11478_long <- X11478 %>%
+  pivot_longer(cols = c("Earlywood", "Latewood"), names_to = "Wood_Type", values_to = "Value")
+ggplot(X11478_long, aes(x = factor(Nb_Ring), y = Value, fill = Wood_Type)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Numéro du cerne",
+    y = "Largeur du cerne (en µm)",
+    title = "Nombre de cernes (gradient moelle-écorce) 11478"
+  ) +
+  geom_point(data = X11478, aes(x = factor(Nb_Ring), y = Ring, size = Nb_FRing),color = "red", shape = 21, fill = "yellow") +
+  scale_fill_manual(values = c("Earlywood" = "orange", "Latewood" = "orange4")) +
+  scale_size_continuous(breaks = unique(X11478$Nb_FRing[X11478$Nb_FRing > 0])) + 
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+13823
+
+```{r}
+X13823_long <- X13823 %>%
+  pivot_longer(cols = c("Earlywood", "Latewood"), names_to = "Wood_Type", values_to = "Value")
+ggplot(X13823_long, aes(x = factor(Nb_Ring), y = Value, fill = Wood_Type)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Numéro du cerne",
+    y = "Largeur du cerne (en µm)",
+    title = "Nombre de cernes (gradient moelle-écorce) 13823"
+  ) +
+  scale_fill_manual(values = c("Earlywood" = "orange", "Latewood" = "orange4")) +
+  scale_size_continuous(breaks = unique(X13823$Nb_FRing[X13823$Nb_FRing > 0])) + 
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+MS(Mean Sensitivity)
+
+```{r}
+#abs(diff(X15492$Ring)) Li+1 -Li pour tous les echantillons
+
+#X15492$Ring[-1] + X15492$Ring[-nrow(X15492) / 2] 1/N-1*(Li+1-Li)/2
+X15492_MS <- mean(abs(diff(X15492$Ring)) / ((X15492$Ring[-1] + X15492$Ring[-nrow(X15492)]) / 2), na.rm = TRUE)
+
+X15485_MS <- mean(abs(diff(X15485$Ring)) / ((X15485$Ring[-1] + X15485$Ring[-nrow(X15485)]) / 2), na.rm = TRUE)
+
+X11478_MS <- mean(abs(diff(X11478$Ring)) / ((X11478$Ring[-1] + X11478$Ring[-nrow(X11478)]) / 2), na.rm = TRUE)
+
+X13823_MS <- mean(abs(diff(X13823$Ring)) / ((X13823$Ring[-1] + X13823$Ring[-nrow(X13823)]) / 2), na.rm = TRUE)
+```
+
+CSDM (Cumulative Sum Deviation Méthode)
+
+```{r}
+# Liste pour stocker les résultats
+csdm_results <- list()
+
+# Boucle sur toutes les entrées de tiles
+for (name in names(resultats_tile)) {
+  tracheid_data <- resultats_tile[[name]]  # Extraire les données
+  
+  # Vérifier si les données sont pas vides
+  if (length(tracheid_data) == 0) {
+    csdm_results[[name]] <- NA
+    next  # Passer à l'itération suivante
+  }
+  
+  # Calcul de la moyenne
+  mean_tracheid_surface <- mean(tracheid_data, na.rm = TRUE)
+  
+  # Calcul des écarts à la moyenne
+  deviations <- tracheid_data - mean_tracheid_surface
+  
+  # Somme cumulative des écarts
+  cumulative_sum <- cumsum(deviations)
+  
+  # Détection des indices où la courbe traverse 0
+  zero_crossings <- which(diff(sign(cumulative_sum)) != 0)
+  
+  # Stocker les résultats
+  csdm_results[[name]] <- list(
+    mean = mean_tracheid_surface,
+    cumulative_sum = cumulative_sum,
+    zero_crossings = zero_crossings
+  )
+}
+
+# Vérifier la structure des résultats
+str(csdm_results)
+csdm_results
+```
+
+Plot auto CSDM
+
+```{r}
+# Choisir une image à visualiser
+example_name <- "PB2_Image_0"  # À changer selon ton choix
+
+# Vérifier si les données existent
+if (!is.null(csdm_results[[example_name]])) {
+  csdm_data <- csdm_results[[example_name]]
+  cumulative_sum <- csdm_data$cumulative_sum
+
+  # Détection améliorée des zero crossings
+  zero_crossings <- which(diff(sign(cumulative_sum)) != 0)
+
+  # Interpolation pour un meilleur point de croisement
+  zero_crossing_x <- zero_crossings + (abs(cumulative_sum[zero_crossings]) /
+                      (abs(cumulative_sum[zero_crossings]) + abs(cumulative_sum[zero_crossings + 1])))
+
+  # Inverser les données pour avoir un tracé de droite à gauche
+  reversed_cumulative_sum <- rev(cumulative_sum)
+
+  # Plot de la courbe CSDM avec les données inversées
+  plot(reversed_cumulative_sum, type = 'l', col = 'blue', lwd = 2,
+       xlab = "# cells", ylab = "Somme cumulative des écarts",
+       main = paste("CSDM", example_name),
+       xaxt = "n", yaxt = "n")
+
+  # Ajouter une grille discrète
+  grid(col = "gray80", lty = "dotted")
+
+  # Modifier les axes (l'axe X reste inchangé, mais on inverse les labels pour correspondre aux nouvelles données)
+  axis(1, at = seq(1, length(cumulative_sum), by = 10), 
+       labels = seq(length(cumulative_sum), 1, by = -10), las = 1)
+  axis(2, col.axis = "black", col.ticks = "black", col = "black", las = 1)
+
+  # Ligne horizontale à zéro
+  abline(h = 0, col = 'red', lty = 2, lwd = 2)
+
+  # Ajouter les nouveaux points zero crossings (à ajuster pour les données inversées)
+  points(length(cumulative_sum) - zero_crossing_x + 1, rep(0, length(zero_crossing_x)), 
+         col = 'purple', pch = 19, cex = 1.5)
+
+  # Ajouter une légende
+  legend("topright", legend = c("CSDM", "Zero Crossings"),
+         col = c("blue", "purple"), lwd = c(2, NA), pch = c(NA, 19), bty = "n")
+}
+
+```
+
+Mesure moyen de l'aire et de la densité de trachéides
+```{r}
+
+```
