@@ -13,6 +13,13 @@ os.makedirs(output_dir, exist_ok=True)
 # Créer les sous-dossiers plots et csv
 plots_dir = os.path.join(output_dir, "Plots")
 csv_dir = os.path.join(output_dir, "Data")
+
+# Récupérer le nom du spécimen à partir du chemin d'entrée
+specimen_name = os.path.basename(os.path.normpath(input_dir))
+
+# Ajouter un sous-dossier spécifique au spécimen dans les répertoires plots et data
+plots_dir = os.path.join(plots_dir, specimen_name)
+csv_dir = os.path.join(csv_dir, specimen_name)
 os.makedirs(plots_dir, exist_ok=True)
 os.makedirs(csv_dir, exist_ok=True)
 
@@ -114,20 +121,28 @@ for input_csv in csv_files:
 
         # Extraction épaisseur des parois avec gestion des hiatus
         thicknesses = []
+
         for i in range(len(df_filtered) - 1):
             cell1 = df_filtered.iloc[i]
             cell2 = df_filtered.iloc[i + 1]
-            distance = np.sqrt((cell2["Centroid_X"] - cell1["Centroid_X"])**2 + (cell2["Centroid_Y"] - cell1["Centroid_Y"])**2)
+            
+            # Calcul de la distance entre les centroides
+            centroid1 = np.array([cell1["Centroid_X"], cell1["Centroid_Y"]])
+            centroid2 = np.array([cell2["Centroid_X"], cell2["Centroid_Y"]])
+            distance = np.linalg.norm(centroid2 - centroid1) * 0.5220  # Conversion en µm
+
             diameter1 = cell1["Equivalent_Diameter"]
             diameter2 = cell2["Equivalent_Diameter"]
-           
+            
             # Vérification du hiatus
             if distance > gap_threshold:
                 thickness = "NA"
             else:
-                thickness = abs(distance -(0.5 * diameter1) + distance -(0.5*diameter2))
-                thickness = thickness * 0.5220 # on convertit en µm
+                # Calcul correct de l'épaisseur de la double paroi
+                thickness = max(0, distance - (0.5 * (diameter1 + diameter2)))
+                
             thicknesses.append(thickness)
+
 
         # Pour la dernière cellule, on met Na pour signaler l'absence de calcul
         thicknesses.append(0)  # Pour la dernière cellule on met 0 mais à rettiré si on travail sur bande

@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 700  # Seuil pour filtrer les objets trop grands
+    size_threshold = 500  # Seuil pour filtrer les objets trop grands
     # (0.5060 px/µm) donc <280µm pour
 
     # Boucle sur toutes les images du dossier
@@ -157,10 +157,16 @@ if __name__ == "__main__":
                 if not file_exists:
                     writer.writerow(["Tile_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
                 
-                # Ajouter les données des masques pour cette tuile
+                unique_masks = {}
                 for x, y, area, equivalent_diameter, mask_id in masks_info:
-                    writer.writerow([f"Image_{i}", mask_id, x, y, area, equivalent_diameter])
+                    key = (round(x, 2), round(y, 2))  # On arrondit pour éviter les flottants très proches considérés différents
+                    if key not in unique_masks or area > unique_masks[key][2]:  # index 2 = area
+                        unique_masks[key] = (x, y, area, equivalent_diameter, mask_id)
 
+                # Écrire les données filtrées dans le fichier
+                for x, y, area, equivalent_diameter, mask_id in unique_masks.values():
+                    writer.writerow([f"Image_{i}", mask_id, x, y, area, equivalent_diameter])
+               
 
             # Création de la figure pour afficher l'image et les masques prédits
             plt.figure(figsize=(12, 6))
