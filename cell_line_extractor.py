@@ -53,8 +53,14 @@ for input_csv in csv_files:
 
     for tile in unique_tiles:
         df_tile = df[df["Tile_ID"] == tile].copy() if has_tile_id else df.copy()
+
+    # Supprimer les doublons de coordonnées, en gardant celui avec la plus grande area
+        df_tile = df_tile.sort_values(by="Area", ascending=False)
+        df_tile = df_tile.drop_duplicates(subset=["Centroid_X", "Centroid_Y"], keep="first")
+
+        # Trier pour l'analyse suivante
         df_tile = df_tile.sort_values(by="Centroid_X", ascending=False)
-        
+
         best_line = None
         max_count = 0
 

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as path_effects
 import csv
 import cv2
+import argparse
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -52,10 +53,15 @@ class CustomDataset(Dataset):
 
 if __name__ == "__main__":
     
+    parser = argparse.ArgumentParser(description="Segmente un fossile dans un dossier.")
+    parser.add_argument('base_path', type=str, required=True, help='Chemin vers le dossier ou il y a les images du fossiles.')
+    args = parser.parse_args()
+
+    base_path = args.base_path
     # Chemin du dossier contenant les images à traiter
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
-    base_path = "/home/killian/data2025/15485"
+    #base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"   
     # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
@@ -102,7 +108,7 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 500  # Seuil pour filtrer les objets trop grands
+    size_threshold = 560  # Seuil pour filtrer les objets trop grands
     # (0.5060 px/µm) donc <280µm pour
 
     # Boucle sur toutes les images du dossier
