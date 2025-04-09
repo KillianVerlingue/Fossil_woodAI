@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from utils import numerical_sort
 
 # Dossiers d'entrée et de sortie
-input_dir = "/home/killian/sam2/inferences/15492/"
+input_dir = "/home/killian/sam2/inferences/15485/"
 output_dir = "/home/killian/sam2/Results/"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -31,7 +31,7 @@ gap_threshold = 20  # Seuil de distance pour détecter un hiatus
 num_lines = 50 # Nombre de droites régréssion 
 max_slope = 0.3 # évite de prendre les diagonales
 positive_slope_weight = 1.6 #pondère pour donner plus d'importance au pente positives 
-max_area = 100 #filtre les cellules abérantes selon le seuil en µm
+# max_area = 28 #filtre les cellules abérantes selon le seuil en µm
 
 # Chercher tous les fichiers "mask_measurements_*.csv"
 csv_files = sorted(glob.glob(os.path.join(input_dir, "mask_measurements_*.csv")), key=numerical_sort)
@@ -103,11 +103,11 @@ for input_csv in csv_files:
         for _, row in df_tile.iterrows():
             current_x, current_y = row["Centroid_X"], row["Centroid_Y"]
             area = row["Area"]  # Assurez-vous que la colonne 'Area' existe dans votre DataFrame
-            area_um = area * (0.5220 ** 2)  # Conversion en µm²
+            # area_um = area * (0.5220 ** 2)  # Conversion en µm²
 
-            # Vérification de la taille de la cellule
-            if area_um > max_area:
-                continue  # Ignorer les petites cellules
+            # # Vérification de la taille de la cellule
+            # if area_um > max_area:
+            #     continue  # Ignorer les petites cellules
 
             # Calculer la position théorique de Y en fonction de la droite finale ajustée
             y_theorique = a * current_x + b
