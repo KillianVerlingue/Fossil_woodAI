@@ -61,11 +61,11 @@ class CustomDataset(Dataset):
         return band
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
-    # parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
+    parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
+    args = parser.parse_args()
 
-    # base_path = args.base_path
+    base_path = args.base_path
 
     # base_path = args.base_path
     # Chemin du dossier contenant les images à traiter
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"   
     # base_path = "/home/killian/data2025/11478"  
-    base_path = "/home/killian/data2025/13823"  
+    # base_path = "/home/killian/data2025/13823"  
     # Récupérer tous les fichiers .tif
    
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
@@ -118,7 +118,7 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 700 # Seuil pour filtrer les objets trop grands
+    size_threshold = 720 # Seuil pour filtrer les objets trop grands
     # (0.5060 px/µm) donc <280µm pour
 
     # Boucle sur toutes les images du dossier

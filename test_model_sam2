@@ -87,21 +87,24 @@ def main():
         model=sam2,
         points_per_side=40,
         points_per_batch=30,
-        pred_iou_thresh=0.85,
-        stability_score_thresh=0.80,
+        pred_iou_thresh=0.8,
+        stability_score_thresh=0.90,
         stability_score_offset=0.8,
-        crop_n_layers=2,
-        box_nms_thresh=0.90,
-        crop_n_points_downscale_factor=1.5,
-        min_mask_region_area=10.0,
+        crop_n_layers=3,
+        box_nms_thresh=0.80,
+        crop_n_points_downscale_factor=2,
+        min_mask_region_area=6.0,
         use_m2m=True
     )
 
     # Evaluation
-    size_threshold = 17000 #seuille de segmentation max
+    size_threshold = 10000 #seuille de segmentation max
     results_writer = csv.writer(open(result_path, 'a', newline=''))
     masks_writer = csv.writer(open(masks_path, 'a', newline=''))
 
+    total_iou = total_precision = total_recall = total_f1 = 0#on initie les metrics totales
+    total_images = 0
+    
     for i, (batch, mask) in enumerate(dataloader):
         print(f"Image {i+1}/{len(dataloader)}", end='\r')
         batch = batch.to(device)
@@ -135,6 +138,19 @@ def main():
                     masks_writer.writerow([f"Image_{i}_{idx}", mask_id, x, y, area, equiv_diam])
 
             save_visuals(image.detach().cpu(), merged, target, os.path.join(output_dir, f"Image_{i}_{idx}.png"))
+
+    if total_images > 0:
+        avg_iou = total_iou / total_images
+        avg_p = total_precision / total_images
+        avg_r = total_recall / total_images
+        avg_f1 = total_f1 / total_images
+
+        print("\n--- Résultats globaux (affichés uniquement dans la console) ---")
+        print(f"Nombre d'images traitées : {total_images}")
+        print(f"mIoU moyen     : {avg_iou:.4f}")
+        print(f"Précision moy. : {avg_p:.4f}")
+        print(f"Recall moyen   : {avg_r:.4f}")
+        print(f"F1-Score moyen : {avg_f1:.4f}")
 
 if __name__ == "__main__":
     main()
