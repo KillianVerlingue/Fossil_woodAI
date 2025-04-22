@@ -23,8 +23,13 @@ class CustomDataset(Dataset):
 
         with tifffile.TiffFile(input_raster) as tif:
             self.raster_shape = tif.pages[0].shape  
-
-        self.height, self.width, self.channels = self.raster_shape
+        
+        if len(self.raster_shape) == 2:
+            self.height, self.width = self.raster_shape
+            self.channels = 1
+        
+        else:
+            self.height, self.width, self.channels = self.raster_shape
 
         self.num_tiles_x = max(1, (self.width - self.tile_size) // self.stride + 1)
         self.num_tiles_y = 1  
@@ -40,7 +45,11 @@ class CustomDataset(Dataset):
         tile_x = max(0, tile_x) 
 
         with tifffile.TiffFile(self.input_raster) as tif:
-            band = tif.pages[0].asarray()[tile_y:tile_y + self.tile_size, tile_x:tile_x + self.tile_size, :]
+            band = tif.pages[0].asarray()
+            # if len(band.shape) == 2:
+                # band = band[..., np.newaxis]
+                # band = np.repeat(band[:, :, np.newaxis], 3, axis=2)
+            band = band[tile_y:tile_y + self.tile_size, tile_x:tile_x + self.tile_size, :]
 
         if self.transforms:
             band = self.transforms(band)
@@ -52,11 +61,11 @@ class CustomDataset(Dataset):
         return band
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
-    parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
+    # parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
+    # args = parser.parse_args()
 
-    base_path = args.base_path
+    # base_path = args.base_path
 
     # base_path = args.base_path
     # Chemin du dossier contenant les images à traiter
@@ -65,9 +74,9 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"   
     # base_path = "/home/killian/data2025/11478"  
-    # base_path = "/home/killian/data2025/13823"  
-    
+    base_path = "/home/killian/data2025/13823"  
     # Récupérer tous les fichiers .tif
+   
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
     if not image_paths:
         print(f"Aucune image trouvée dans {base_path}")
@@ -100,7 +109,7 @@ if __name__ == "__main__":
         pred_iou_thresh=0.65,  # Reduire pour accepter plus de mask
         stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
-        crop_n_layers=4,  # Ammeliore la segmentation des petites structures
+        crop_n_layers=6,  # Ammeliore la segmentation des petites structures
         box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
         min_mask_region_area=6.0,  # Conserver plus de petits objets
@@ -109,7 +118,7 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 560  # Seuil pour filtrer les objets trop grands
+    size_threshold = 700 # Seuil pour filtrer les objets trop grands
     # (0.5060 px/µm) donc <280µm pour
 
     # Boucle sur toutes les images du dossier

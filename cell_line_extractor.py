@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from utils import numerical_sort
 
 # Dossiers d'entrée et de sortie
-input_dir = "/home/killian/sam2/inferences/15485/"
+input_dir = "/home/killian/sam2/inferences/11478/"
 output_dir = "/home/killian/sam2/Results/"
 os.makedirs(output_dir, exist_ok=True)
 

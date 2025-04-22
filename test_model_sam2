@@ -1,180 +1,140 @@
-# Import des dépendances
+
 import os
 import csv
+import glob
+import cv2
 import torch
-import torchmetrics
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-import glob
+import torchmetrics
 
-# Si Apple MPS est utilisé, repli sur le CPU pour les opérations non prises en charge
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+# Initialisation de l'environnement
+def get_device():
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
-# On définit le DataLoader
+# Dataloader et Dataset
 class DataLoaderSegmentation(Dataset):
     def __init__(self, folder_path, transforms=None):
-        super(DataLoaderSegmentation, self).__init__()
         self.img_files = glob.glob(os.path.join(folder_path, '*.jpg'))
-        self.mask_files = [os.path.join(folder_path, f'{img_path[:-4]}_mask.png') for img_path in self.img_files]
+        self.mask_files = [f'{img_path[:-4]}_mask.png' for img_path in self.img_files]
         self.transforms = transforms
 
     def __getitem__(self, index):
-        img_path = self.img_files[index]
-        mask_path = self.mask_files[index]
-        
-        # Chargement de l'image et du masque
-        image = Image.open(img_path).convert("RGB")
-        image = np.array(image)
-        
-        label = Image.open(mask_path).convert("RGB")
-        label = np.array(label)
-        
+        image = np.array(Image.open(self.img_files[index]).convert("RGB"))
+        label = np.array(Image.open(self.mask_files[index]).convert("RGB"))
+
         if self.transforms:
-            # Appliquer les transformations ici si nécessaire
             image = self.transforms(image)
-        
+
         return image, label
 
     def __len__(self):
         return len(self.img_files)
 
-# On définit le Dataset
-dataset = DataLoaderSegmentation('/home/killian/Annotations/Annotations')
-dataloader = DataLoader(dataset=dataset, batch_size=1)
+# Utils
+def merge_preds(preds):
+    masks = torch.stack([torch.tensor(p['segmentation'], dtype=torch.bool) for p in preds])
+    return masks.any(dim=0)
 
-# Import de sam2
-from sam2.build_sam import build_sam2
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+def save_visuals(image, prediction, label, out_path):
+    if image.dim() == 3 and image.shape[0] <= 4:
+        image = image.permute(1, 2, 0)
+    image = image.numpy()
 
-# Chargement du modèle
-checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_tiny.pt"
-model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
-sam2 = build_sam2(model_cfg, checkpoint, device="cuda", apply_postprocessing=False)
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 3, 1); plt.imshow(image.astype(np.uint8)); plt.title("Image d'origine"); plt.axis('off')
+    plt.subplot(1, 3, 2); plt.imshow(prediction.cpu().numpy(), cmap='gray'); plt.title("Prédiction"); plt.axis('off')
+    plt.subplot(1, 3, 3); plt.imshow(label.cpu().numpy(), cmap='gray'); plt.title("Label"); plt.axis('off')
+    plt.savefig(out_path)
+    plt.close()
 
-mask_generator = SAM2AutomaticMaskGenerator(sam2)
+#Import des chemins et du modèle
 
-# Hyperparamètres pour le modèle
-model = SAM2AutomaticMaskGenerator(
-    model=sam2,
-    points_per_side=20,
-    points_per_batch=30,
-    pred_iou_thresh=0.7,
-    stability_score_thresh=0.80,
-    stability_score_offset=0.8,
-    crop_n_layers=2,
-    box_nms_thresh=0.80,
-    crop_n_points_downscale_factor=2,
-    min_mask_region_area=15.0,
-    use_m2m=True,
-)
+def main():
+    from sam2.build_sam import build_sam2
+    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-# Fonction pour concaténer les prédictions des masques
-def merge_preds(pred):
-    res = torch.stack([torch.Tensor(mask['segmentation']) for mask in pred])
-    return res.any(dim=0)
+    # Params
+    dataset_path = '/home/killian/Annotations/Annotations'
+    checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
+    config_path = "configs/sam2.1/sam2.1_hiera_s.yaml"
+    output_dir = "/home/killian/sam2/predictions"
+    os.makedirs(output_dir, exist_ok=True)
 
-# Définition du device
-device = "cuda"
+    # Metriques
+    device = get_device()
+    miou = torchmetrics.JaccardIndex(task='binary', num_classes=1).to(device)
+    precision = torchmetrics.Precision(task='binary').to(device)
+    recall = torchmetrics.Recall(task='binary').to(device)
+    f1_score = torchmetrics.F1Score(task='binary').to(device)
 
-# Définition des métriques
-miou = torchmetrics.JaccardIndex(task='binary', num_classes=1).to(device)
-precision = torchmetrics.Precision(task='binary').to(device)
-recall = torchmetrics.Recall(task='binary').to(device)
-f1_score = torchmetrics.F1Score(task='binary').to(device)
+    # CSV
+    result_path = os.path.join(output_dir, "sam2_results.csv")
+    masks_path = os.path.join(output_dir, "mask_measurements.csv")
+    with open(result_path, 'w', newline='') as f:
+        csv.writer(f).writerow(["Image_ID", "IoU", "Precision", "Recall", "F1_Score", "Num_Masks", "Num_Masks_Label"])
+    with open(masks_path, 'w', newline='') as f:
+        csv.writer(f).writerow(["Image_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
 
-# Dossier de sortie
-output_dir = "/home/killian/sam2/predictions"
-os.makedirs(output_dir, exist_ok=True)
+    # Data
+    dataloader = DataLoader(DataLoaderSegmentation(dataset_path), batch_size=1)
 
-# Fichier CSV pour les métriques globales
-csv_file = os.path.join(output_dir, "sam2_results.csv")
-with open(csv_file, mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(["Image_ID", "IoU", "Precision", "Recall", "F1_Score", "Num_Masks", "Num_Masks_Label"])
+    # Model et hyperparamètres
+    sam2 = build_sam2(config_path, checkpoint, device=device, apply_postprocessing=False)
+    generator = SAM2AutomaticMaskGenerator(
+        model=sam2,
+        points_per_side=40,
+        points_per_batch=30,
+        pred_iou_thresh=0.85,
+        stability_score_thresh=0.80,
+        stability_score_offset=0.8,
+        crop_n_layers=2,
+        box_nms_thresh=0.90,
+        crop_n_points_downscale_factor=1.5,
+        min_mask_region_area=10.0,
+        use_m2m=True
+    )
 
-# Fichier CSV pour les mesures des masques
-csv_masks_file = os.path.join(output_dir, "mask_measurements.csv")
-with open(csv_masks_file, mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(["Image_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
+    # Evaluation
+    size_threshold = 17000 #seuille de segmentation max
+    results_writer = csv.writer(open(result_path, 'a', newline=''))
+    masks_writer = csv.writer(open(masks_path, 'a', newline=''))
 
-size_threshold = 10000  # Seuil pour filtrer les objets trop grands
+    for i, (batch, mask) in enumerate(dataloader):
+        print(f"Image {i+1}/{len(dataloader)}", end='\r')
+        batch = batch.to(device)
 
-# Variables pour les moyennes
-total_miou = total_precision = total_recall = total_f1 = total_images = 0
+        for idx, (image, label) in enumerate(zip(batch, mask)):
+            pred = generator.generate(image.cpu().numpy())
+            if not pred:
+                continue
 
-for i, (batch, mask) in enumerate(dataloader):
-    print(f"Image {i+1}/{len(dataloader)} - Avancement : {i/len(dataloader):.2%}", end='\r')
-    batch = batch.to(device)
+            mask_stack = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
+            filtered = mask_stack[mask_stack.sum(dim=(1, 2)) <= size_threshold]
+            merged = filtered.any(dim=0).to(device)
 
-    for idx, (image, label) in enumerate(zip(batch, mask)):
-        image_np = image.cpu().numpy()
-        pred = mask_generator.generate(image_np)
-        
-        res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
-        filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
-        res_merge = filtered_tensor.any(dim=0).to(device)
-        
-        label_np = np.array(label)
-        trach = torch.as_tensor(label_np[:, :, 2], dtype=torch.bool, device=device) if label_np.ndim == 3 and label_np.shape[-1] >= 3 else torch.as_tensor(label_np, dtype=torch.bool, device=device)
-        
-        num_masks_label = (label_np > 0).sum()
-        
-        # Calcul des métriques
-        img_miou = miou(res_merge, trach).item()
-        img_precision = precision(res_merge, trach).item()
-        img_recall = recall(res_merge, trach).item()
-        img_f1 = f1_score(res_merge, trach).item()
-        
-        total_miou += img_miou
-        total_precision += img_precision
-        total_recall += img_recall
-        total_f1 += img_f1
-        total_images += 1
-        
-        # Sauvegarde des résultats dans le CSV
-        with open(csv_file, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([f"Image_{i}_{idx}", img_miou, img_precision, img_recall, img_f1, filtered_tensor.shape[0], num_masks_label])
-        
-        # Mesure des aires et centroïdes des masques
-        for mask_id, mask_pred in enumerate(filtered_tensor):
-            mask_np = mask_pred.cpu().numpy().astype(np.uint8)
-            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
-            
-            with open(csv_masks_file, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                for j in range(1, num_labels):
+            label_np = np.asarray(label)
+            target = torch.as_tensor(label_np[:, :, 2], dtype=torch.bool, device=device) if label_np.ndim == 3 else torch.as_tensor(label_np, dtype=torch.bool, device=device)
+
+            iou = miou(merged, target).item()
+            p = precision(merged, target).item()
+            r = recall(merged, target).item()
+            f1 = f1_score(merged, target).item()
+
+            results_writer.writerow([f"Image_{i}_{idx}", iou, p, r, f1, filtered.shape[0], (label_np > 0).sum()])
+
+            for mask_id, m in enumerate(filtered):
+                mask_np = m.cpu().numpy().astype(np.uint8)
+                _, _, stats, centroids = cv2.connectedComponentsWithStats(mask_np)
+                for j in range(1, len(centroids)):
                     x, y = centroids[j]
                     area = stats[j, cv2.CC_STAT_AREA]
-                    equivalent_diameter = np.sqrt(4 * area / np.pi)
-                    writer.writerow([f"Image_{i}_{idx}", mask_id, x, y, area, equivalent_diameter])
-        
-        # Sauvegarde des images
-        plt.figure(figsize=(12, 5))
-        plt.subplot(1, 2, 1)
-        plt.title("Prédiction")
-        plt.imshow(res_merge.cpu().numpy(), cmap='gray')
-        plt.axis('off')
-        
-        plt.subplot(1, 2, 2)
-        plt.title("Label")
-        plt.imshow(trach.cpu().numpy(), cmap='gray')
-        plt.axis('off')
-        
-        plt.savefig(os.path.join(output_dir, f"Image_{i}_{idx}.png"))
-        plt.close()
+                    equiv_diam = np.sqrt(4 * area / np.pi)
+                    masks_writer.writerow([f"Image_{i}_{idx}", mask_id, x, y, area, equiv_diam])
 
-if total_images > 0:
-    mean_miou = total_miou / total_images
-    mean_precision = total_precision / total_images
-    mean_recall = total_recall / total_images
-    mean_f1 = total_f1 / total_images
-    
-    print(f"mIoU moyen: {mean_miou:.4f}")
-    print(f"Précision moyenne: {mean_precision:.4f}")
-    print(f"Rappel moyen: {mean_recall:.4f}")
-    print(f"F1-Score moyen: {mean_f1:.4f}")
+            save_visuals(image.detach().cpu(), merged, target, os.path.join(output_dir, f"Image_{i}_{idx}.png"))
+
+if __name__ == "__main__":
+    main()
