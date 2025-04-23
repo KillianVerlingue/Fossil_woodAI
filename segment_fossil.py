@@ -87,7 +87,9 @@ if __name__ == "__main__":
 
     # Générer un dossier de sortie pour ce jeu de données
     output_dir = f"/home/killian/sam2/inferences/{base_folder}"
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)       
+    mask_dir = os.path.join(output_dir, "mask")
+    os.makedirs(mask_dir, exist_ok=True)
 
     # Créer un fichier CSV global pour chaques images
     csv_masks_file = os.path.join(output_dir, f"mask_measurements_{base_folder}.csv")
@@ -158,6 +160,10 @@ if __name__ == "__main__":
 
             # Vérifier si le fichier existe déjà (pour ne pas réécrire l'entête à chaque tuile)
             file_exists = os.path.isfile(csv_image_file)
+            
+            # Sauvegarde du masque binaire dans le dossier mask/
+            mask_output_path = os.path.join(mask_dir, f"{image_name}_Image_{i}_mask.tif")
+            tifffile.imwrite(mask_output_path, res_merge.cpu().numpy().astype(np.uint8) * 255)
 
             # Ouvrir en mode append ('a') pour ajouter les nouvelles tuiles
             with open(csv_image_file, mode='a', newline='') as file:
@@ -206,6 +212,10 @@ if __name__ == "__main__":
             # output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
             # plt.savefig(output_img_path, dpi=300)  # Augmentation de la résolution pour plus de lisibilité
             # plt.close()
+            
+
+            
+
 
             # Sauvegarde des images
             plt.figure(figsize=(12, 6))
