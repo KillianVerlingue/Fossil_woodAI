@@ -10,16 +10,15 @@ from utils import numerical_sort
 import networkx as nx
 from sklearn.linear_model import LinearRegression
 
-#fonction 
-
+# Fonction pour calculer l'angle entre deux points
 def angle_between(p1, p2):
     delta = np.array(p2) - np.array(p1)
     return np.degrees(np.arctan2(delta[1], delta[0])) % 180
 
+# Fonction pour vérifier l'alignement des cellules
 def is_aligned(p1, p2, ref_angle, tol=15):
     ang = angle_between(p1, p2)
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
-
 
 # Dossiers d'entrée et de sortie
 input_dir = "/home/killian/sam2/inferences/15492/"
@@ -48,7 +47,7 @@ for input_csv in csv_files:
 
     df = pd.read_csv(input_csv)
     specimen = os.path.splitext(os.path.basename(input_csv))[0].replace("mask_measurements_", "")
-    print(f"🔍 Traitement : {specimen}")
+    print(f"Traitement : {specimen}")
 
     has_tile = "Tile_ID" in df.columns
     tiles = df["Tile_ID"].unique() if has_tile else [None]
@@ -63,7 +62,6 @@ for input_csv in csv_files:
         # Chargement des masques
         tif_name = f"{specimen}_{tile}_mask.tif" if tile else f"{specimen}_mask.tif"
         mask_path = os.path.join(input_dir, "mask", tif_name)
-
         mask = tifffile.imread(mask_path)
         binary = (mask > 0).astype(np.uint8)
 
@@ -89,7 +87,7 @@ for input_csv in csv_files:
 
         files = []
         if len(all_coords) > 1:
-            # Graphe de voisinage
+            # Graphe de connexion des cellules
             tree = KDTree(all_coords)
             pairs = tree.query_pairs(distance_threshold)
 
@@ -97,7 +95,7 @@ for input_csv in csv_files:
             G.add_nodes_from(range(len(all_coords)))
             G.add_edges_from(pairs)
 
-            # Orientation principale
+            # Orientation principale des angles
             angles = [angle_between(all_coords[i], all_coords[j]) for i, j in G.edges]
             hist, bins = np.histogram(angles, bins=36, range=(0, 180))
             main_dir = bins[np.argmax(hist)]
@@ -121,54 +119,18 @@ for input_csv in csv_files:
                 if len(chain) >= 3:
                     files.append(chain)
 
-            # Scoring des files
-            file_scores = []
-            for idx_file, chain in enumerate(files):
-                pts = np.array([all_coords[i] for i in chain])
-                areas = []
-                for i in chain:
-                    x, y = all_coords[i]
-                    mask_row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
-                    if not mask_row.empty:
-                        areas.append(mask_row.iloc[0]["Area"])
+            # Sélection de la meilleure file (la plus longue)
+            best_file_id = max(range(len(files)), key=lambda i: len(files[i]))
 
-                # Longueur
-                n_cells = len(chain)
-
-                # Linéarité avec régression
-                X = pts[:, 0].reshape(-1, 1)
-                Y = pts[:, 1]
-                reg = LinearRegression().fit(X, Y)
-                r_squared = reg.score(X, Y)
-
-                # Cohérence des aires
-                area_std = np.std(areas) if areas else 700 # gros std 
-
-                # Score composite
-                norm_len = n_cells / max(1, max(len(f) for f in files))  # [0-1]
-                score = (2 * r_squared) + (1 / (1 + area_std)) + (1.5 * norm_len)
-
-                file_scores.append({
-                    "File_ID": idx_file,
-                    "n_cells": n_cells,
-                    "linearity": round(r_squared, 3),
-                    "area_std": round(area_std, 1),
-                    "score": round(score, 3)
-                })
-
-            # Tri décroissant des files
-            file_scores = sorted(file_scores, key=lambda x: x["score"], reverse=True)
-            best_file_id = file_scores[0]["File_ID"]
-
-        # === Plot : 3 visualisations
+        # Plots
         fig, axs = plt.subplots(1, 3, figsize=(18, 6))
 
-        # 1. Masque binaire
+        #Masques
         axs[0].imshow(binary, cmap="gray")
         axs[0].set_title("Masque Binaire")
         axs[0].axis("off")
 
-        # 2. Graphe de connexions
+        #Graphe de connexions
         axs[1].imshow(np.zeros_like(binary), cmap="gray")
         for cnt in contours:
             axs[1].plot(cnt[:, 0, 0], cnt[:, 0, 1], color='lime', linewidth=1)
@@ -181,7 +143,7 @@ for input_csv in csv_files:
         axs[1].set_title("Centroïdes + Liens")
         axs[1].axis("off")
 
-        # 3. Files cellulaires colorées
+        #Files cellulaires colorées
         axs[2].imshow(np.zeros_like(binary), cmap="gray")
         overlay = np.zeros((*binary.shape, 3), dtype=np.uint8)
         if files:
@@ -197,14 +159,19 @@ for input_csv in csv_files:
                             cv2.drawContours(overlay, [cnt], -1, color=tuple(int(c) for c in colors[idx_file]), thickness=cv2.FILLED)
                             break
             
-            # Colorier la meilleure file de manière spéciale (en rouge)
+            # Colorier la meilleure file en rouge
             best_file_chain = files[best_file_id]
             for i in best_file_chain:
                 cX, cY = map(int, all_coords[i])
                 for cnt in contours:
                     if cv2.pointPolygonTest(cnt, (cX, cY), False) >= 0:
                         cv2.drawContours(overlay, [cnt], -1, color=(255, 0, 0), thickness=cv2.FILLED)  # Rouge pour la meilleure file
-                        break
+
+            # Ajouter une ligne rouge pour relier les centroïdes de la meilleure file
+            for i in range(1, len(best_file_chain)):
+                x1, y1 = all_coords[best_file_chain[i - 1]]
+                x2, y2 = all_coords[best_file_chain[i]]
+                axs[2].plot([x1, x2], [y1, y2], color="red", linewidth=2)
 
         axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binary * 255, cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
         axs[2].set_title("Files Cellulaires Colorées")
@@ -216,12 +183,23 @@ for input_csv in csv_files:
             best_chain = files[best_file_id]
             for cell_idx in best_chain:
                 x, y = all_coords[cell_idx]
-                best_file_data.append({"Tile_ID": tile, "File_ID": best_file_id, "Centroid_X": x, "Centroid_Y": y})
+                mask_row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
+
+                # Vérification si mask_row contient des données
+                if not mask_row.empty:
+                    area = mask_row.iloc[0]["Area"]
+                    diameter = np.sqrt(4 * area / np.pi)
+                else:
+                    area = np.nan  # Valeur par défaut si aucune donnée n'est trouvée
+                    diameter = np.nan
+
+                best_file_data.append({"Tile_ID": tile, "File_ID": best_file_id, "Centroid_X": x, "Centroid_Y": y,
+                                       "Aire": area, "Diamètre_équivalent": diameter})
             
             df_best_file = pd.DataFrame(best_file_data)
             file_csv_path = os.path.join(csv_dir, f"{os.path.basename(input_csv).replace('.csv', f'_{tile}_best_file.csv')}")
             df_best_file.to_csv(file_csv_path, index=False)
-            print(f"enregistrement de la meilleure file: {file_csv_path}")
+            print(f"enregistrement : {file_csv_path}")
 
         # Sauvegarde
         plt.tight_layout()
