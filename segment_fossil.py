@@ -70,12 +70,12 @@ if __name__ == "__main__":
     # Chemin du dossier contenant les images à traiter
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
-    # base_path = "/home/killian/data2025/15485"
-    base_path = "/home/killian/data2025/15492"   
+    base_path = "/home/killian/data2025/15485"
+    # base_path = "/home/killian/data2025/15492"  
     # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
+    
     # Récupérer tous les fichiers .tif
-   
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
     if not image_paths:
         print(f"Aucune image trouvée dans {base_path}")

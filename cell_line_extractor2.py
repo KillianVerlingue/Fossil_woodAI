@@ -9,6 +9,15 @@ from scipy.spatial import KDTree
 from utils import numerical_sort
 import networkx as nx
 from sklearn.linear_model import LinearRegression
+from sklearn.cluster import DBSCAN
+
+# Paramètres
+distance_threshold = 40 # distance max pour relier deux centroïdes
+distance_fusion = 9  # Distance maximum entre deux centroïdes pour être considérés comme identiques (peut être ajusté)
+tolerance_angle = 16 #tolérance de variation d'angles dans la recherhe de file
+# score_nb = 1 #importance en % du nombre de cellule dans la meilleure file cellulaire
+score_area = 0.01 #importance en % de la variations d'aires dans la meilleure file cellulaire
+score_angle = 0.01 #importance en % de la variations d'angles dans la meilleure file cellulaire
 
 # Fonction pour calculer l'angle entre deux points
 def angle_between(p1, p2):
@@ -20,8 +29,90 @@ def is_aligned(p1, p2, ref_angle, tol=15):
     ang = angle_between(p1, p2)
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
 
+def score_file(chain, coords, df_tile):
+    """Calcule un score pour une file."""
+    n_cells = len(chain)
+
+    # Aire des cellules
+    areas = []
+    for cell_idx in chain:
+        x, y = coords[cell_idx]
+        mask_row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
+        if not mask_row.empty:
+            area = mask_row.iloc[0]["Area"]
+        else:
+            area = np.nan
+        areas.append(area)
+    areas = np.array(areas)
+    areas = areas[~np.isnan(areas)]  # Retirer les NaN
+
+    if len(areas) == 0:
+        return -np.inf  # File invalide
+
+    area_std = np.std(areas)  # Écart-type des aires (on veut petit)
+
+    # Calcul des angles
+    angles = []
+    for i in range(1, len(chain)):
+        p1 = coords[chain[i-1]]
+        p2 = coords[chain[i]]
+        angles.append(angle_between(p1, p2))
+    angles = np.array(angles)
+    if len(angles) > 1:
+        angle_variation = np.std(angles)  # Variabilité des angles (on veut petit)
+    else:
+        angle_variation = 0  # Une seule liaison => parfait
+
+    # Score : plus grand nombre de cellules, plus faible variation d'aire, plus faible variation d'angles
+    score = n_cells - (area_std * score_area) - (angle_variation * score_angle)
+
+    return score
+
+# def apply_watershed_contours(binary):
+
+#     # Copie du masque
+#     binary_copy = binary.copy()
+
+#     # Nettoyage léger pour virer le bruit
+#     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+#     opening = cv2.morphologyEx(binary_copy, cv2.MORPH_OPEN, kernel, iterations=1)
+
+#     # Calcul du gradient (fort sur les bords)
+#     gradient = cv2.morphologyEx(opening, cv2.MORPH_GRADIENT, kernel)
+
+#     # Marqueurs pour Watershed
+#     # Distance transform pour trouver le centre des cellules
+#     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+#     ret, sure_fg = cv2.threshold(dist_transform, 0.6 * dist_transform.max(), 255, 0)
+#     sure_fg = np.uint8(sure_fg)
+
+#     # Définir le fond sûr
+#     sure_bg = cv2.dilate(opening, kernel, iterations=2)
+#     unknown = cv2.subtract(sure_bg, sure_fg)
+
+#     # Marquage des composantes connectées
+#     ret, markers = cv2.connectedComponents(sure_fg)
+
+#     # Préparer les marqueurs pour Watershed
+#     markers = markers + 1
+#     markers[unknown == 255] = 0
+
+#     # Appliquer Watershed sur une image colorée du gradient pour mieux suivre les bords
+#     color_gradient = cv2.cvtColor(gradient, cv2.COLOR_GRAY2BGR)
+#     markers = cv2.watershed(color_gradient, markers)
+
+#     # Reconstruction du masque à partir des marqueurs
+#     watershed_mask = np.zeros_like(binary_copy, dtype=np.uint8)
+#     watershed_mask[markers > 1] = 255
+
+#     # Extraction finale des contours
+#     contours, _ = cv2.findContours(watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+#     return contours, (watershed_mask // 255).astype(np.uint8)
+
 # Dossiers d'entrée et de sortie
 input_dir = "/home/killian/sam2/inferences/15492/"
+# input_dir = "/home/killian/sam2/inferences/TGV4/"
 output_dir = "/home/killian/sam2/Results/"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -37,9 +128,6 @@ plots_dir = os.path.join(plots_dir, specimen_name)
 csv_dir = os.path.join(csv_dir, specimen_name)
 os.makedirs(plots_dir, exist_ok=True)
 os.makedirs(csv_dir, exist_ok=True)
-
-# Paramètres
-distance_threshold = 25  # distance max pour relier deux centroïdes
 
 csv_files = sorted(glob.glob(os.path.join(input_dir, "mask_measurements_*.csv")), key=numerical_sort)
 
@@ -66,7 +154,9 @@ for input_csv in csv_files:
         binary = (mask > 0).astype(np.uint8)
 
         # Extraction des contours
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        binary= np.int32(binary)
+        contours, _ = cv2.findContours(binary, cv2.RETR_FLOODFILL, cv2.CHAIN_APPROX_NONE)
+        # contours, binary = apply_watershed_contours(binary)
 
         # Centroïdes existants
         existing_coords = df_tile[["Centroid_X", "Centroid_Y"]].values.tolist()
@@ -85,6 +175,17 @@ for input_csv in csv_files:
 
         all_coords = np.array(all_coords)
 
+        # Regrouper les centroïdes trop proches en un seul
+        if len(all_coords) > 1:
+            clustering = DBSCAN(eps=distance_fusion, min_samples=1).fit(all_coords)
+            labels = clustering.labels_
+            merged_coords = []
+            for label in np.unique(labels):
+                points = all_coords[labels == label]
+                merged_coords.append(points.mean(axis=0))  # moyenne des points du cluster
+
+            all_coords = np.array(merged_coords)
+
         files = []
         if len(all_coords) > 1:
             # Graphe de connexion des cellules
@@ -99,7 +200,6 @@ for input_csv in csv_files:
             angles = [angle_between(all_coords[i], all_coords[j]) for i, j in G.edges]
             hist, bins = np.histogram(angles, bins=36, range=(0, 180))
             main_dir = bins[np.argmax(hist)]
-            tolerance_angle = 15
 
             # Recherche de files cellulaires
             visited = set()
@@ -113,14 +213,29 @@ for input_csv in csv_files:
                     current = queue.pop()
                     for neighbor in G.neighbors(current):
                         if neighbor not in visited and is_aligned(all_coords[current], all_coords[neighbor], main_dir, tolerance_angle):
+                            # Vérifier la direction
+                            if len(chain) >= 2:
+                                # Direction précédente
+                                prev = chain[-2]
+                                vec_prev = np.array(all_coords[current]) - np.array(all_coords[prev])
+                                vec_new = np.array(all_coords[neighbor]) - np.array(all_coords[current])
+
+                            #     # Produit scalaire pour voir si on va dans la même direction
+                            #     dot_product = np.dot(vec_prev, vec_new)
+                            #     if dot_product <= 0:
+                            #         continue  # Refuser si on recule
+
                             chain.append(neighbor)
                             queue.append(neighbor)
                             visited.add(neighbor)
                 if len(chain) >= 3:
                     files.append(chain)
 
-            # Sélection de la meilleure file (la plus longue)
-            best_file_id = max(range(len(files)), key=lambda i: len(files[i]))
+            # Sélection de la meilleure file:
+            file_scores = [score_file(chain, all_coords, df_tile) for chain in files]
+            best_file_id = np.argmax(file_scores)
+
+            # best_file_id = max(range(len(files)), key=lambda i: len(files[i]))
 
         # Plots
         fig, axs = plt.subplots(1, 3, figsize=(18, 6))
@@ -173,7 +288,9 @@ for input_csv in csv_files:
                 x2, y2 = all_coords[best_file_chain[i]]
                 axs[2].plot([x1, x2], [y1, y2], color="red", linewidth=2)
 
-        axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binary * 255, cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
+        # axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binary * 255, cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
+        axs[2].imshow(cv2.addWeighted(cv2.cvtColor(np.uint8(binary * 255), cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
+ 
         axs[2].set_title("Files Cellulaires Colorées")
         axs[2].axis("off")
 
