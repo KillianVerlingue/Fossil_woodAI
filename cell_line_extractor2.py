@@ -3,7 +3,9 @@ import glob
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import colormaps
 from matplotlib import cm
+from matplotlib.colors import Normalize
 import cv2
 import tifffile
 from scipy.spatial import KDTree
@@ -13,12 +15,12 @@ from sklearn.linear_model import LinearRegression
 from sklearn.cluster import DBSCAN
 
 # Paramètres
-distance_threshold = 50 # distance max pour relier deux centroïdes
-tolerance_angle = 7 #tolérance de variation d'angles dans la recherhe de file
-score_nb = 0.5 #importance en % du nombre de cellule dans la meilleure file cellulaire
-score_area = 0.15 #importance en % de la variations d'aires dans la meilleure file cellulaire
-score_angle =  0.35 #importance en % de la variations d'angles dans la meilleure file cellulaire
-cells_per_tiles = 45 #nombre estimé de cellules par tuiles (droites à gauches)
+distance_threshold = 40 # distance max pour relier deux centroïdes
+tolerance_angle = 8 #tolérance de variation d'angles dans la recherhe de file
+score_nb = 0.8 #importance en % du nombre de cellule dans la meilleure file cellulaire
+score_area = 0.1 #importance en % de la variations d'aires dans la meilleure file cellulaire
+score_angle =  0.1 #importance en % de la variations d'angles dans la meilleure file cellulaire
+cells_per_tiles = 30 #nombre estimé de cellules par tuiles (droites à gauches)
 
 
 # Dossiers d'entrée et de sortie
@@ -41,11 +43,8 @@ def is_aligned(p1, p2, ref_angle, tol=15):
     ang = angle_between(p1, p2)
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
 
-# Fonction pour  calculer le score des files
 def score_file(chain, coords, df_tile):
     n_cells = len(chain)
-
-    # Aire des cellules
     areas = []
     eq_diams = []
     for cell_idx in chain:
@@ -54,27 +53,29 @@ def score_file(chain, coords, df_tile):
         if not row.empty:
             areas.append(row.iloc[0]["Area"])
             eq_diams.append(row.iloc[0]["Equivalent_Diameter"])
-    areas = np.array(areas)
-    eq_diams = np.array(eq_diams)
 
     if len(areas) == 0:
-        return -np.inf
+        return 0  # ou un score minimal plus explicite que -inf
 
-    # Normalisations (min-max)
-    area_std = np.std(areas) / np.mean(areas)
+    areas = np.array(areas)
+    mean_area = np.mean(areas)
+    area_std = np.std(areas) / mean_area if mean_area != 0 else 0
+
     angle_devs = []
     for i in range(1, len(chain)):
         angle = angle_between(coords[chain[i-1]], coords[chain[i]])
         angle_devs.append(angle)
+
     angle_var = np.std(angle_devs) / 180 if len(angle_devs) > 1 else 0
 
-    # Score pondéré entre 0 et 1
     score = (
-        (n_cells / cells_per_tiles) * score_nb +  # suppose que 20 est un très bon nombre
-        (1 - area_std) * score_area +  # aire homogène
-        (1 - angle_var) * score_angle  # linéarité
+        (n_cells / cells_per_tiles) * score_nb +
+        (1 - area_std) * score_area +
+        (1 - angle_var) * score_angle
     )
+
     return score
+
 
 # Mesurer la disatnce de cellules a son contour
 def distance_to_contour_along_direction(centroid, direction, contour):
@@ -101,7 +102,7 @@ def apply_watershed(binary_mask):
 
     # Distance transform pour trouver les centres de cellules
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(dist_transform, 0.05 * dist_transform.max(), 255, 0)
+    _, sure_fg = cv2.threshold(dist_transform, 0.07 * dist_transform.max(), 255, 0)
 
     sure_fg = np.uint8(sure_fg)
     unknown = cv2.subtract(sure_bg, sure_fg)
@@ -181,26 +182,37 @@ for input_csv in csv_files:
         # Extraction des contours
         binary = np.int32(binary)
         contours, _ = cv2.findContours(binary, cv2.RETR_FLOODFILL, cv2.CHAIN_APPROX_NONE)
-        
         # Centroïdes existants
         existing_coords = df_tile[["Centroid_X", "Centroid_Y"]].values.tolist()
-        all_coords = existing_coords.copy()
-
-        # Comparaison des centroïdes trouvés via contours avec ceux du masque
+        # all_coords = existing_coords.copy()
+        all_coords = []
         for cnt in contours:
             M = cv2.moments(cnt)
             if M["m00"] == 0:
                 continue
             cx = M["m10"] / M["m00"]
             cy = M["m01"] / M["m00"]
+            centroid = np.array([cx, cy])
 
-            # Vérifier si ce centroïde est déjà proche d'un centroïde existant
-            too_close = any(np.hypot(cx - x, cy - y) < 2 for x, y in existing_coords)
-            if not too_close:
-                all_coords = existing_coords.copy() 
+            # Trouver tous les centroïdes existants proches du contour
+            matching = []
+            for ec in existing_coords:
+                dist = cv2.pointPolygonTest(cnt, (ec[0], ec[1]), measureDist=True)
+                if dist >= -2:  # autoriser un petit dépassement
+                    matching.append(ec)
 
-            # Conversion finale en array numpy
-            all_coords = np.array(all_coords)
+            if len(matching) == 0:
+                # Aucun centroïde : on ajoute le centroïde calculé à partir du contour
+                all_coords.append([cx, cy])
+            elif len(matching) == 1:
+                # Un seul centroïde : on le garde
+                all_coords.append(matching[0])
+            else:
+                # Plusieurs centroïdes dans un même contour : on les regroupe (barycentre)
+                avg = np.mean(matching, axis=0)
+                all_coords.append(avg)
+
+        all_coords = np.array(all_coords)
 
         files = []
         if len(all_coords) > 1:
@@ -255,17 +267,22 @@ for input_csv in csv_files:
         overlay = np.zeros((*binary.shape, 3), dtype=np.uint8)
 
         if files:
-            colors = (plt.cm.jet(np.linspace(0, 1, len(files)))[:, :3] * 255).astype(np.uint8)
-     
-        # Colorer toutes les files (sauf la meilleure)
-        for idx_file, chain in enumerate(files):
+            # Génère une colormap pour N files
+            file_scores = [score_file(chain, all_coords, df_tile) for chain in files]
+            norm = Normalize(vmin=min(file_scores), vmax=max(file_scores))
+            cmap = colormaps["coolwarm"]
+
+            for idx_file, chain in enumerate(files):
+                # Convertir couleur RGBA → BGR (OpenCV) avec des entiers
+                rgba = cmap(norm(file_scores[idx_file]))[:3]
+                color = tuple(int(255 * c) for c in rgba[::-1])  # RGB → BGR
+
                 for i in chain:
                     cX, cY = map(int, all_coords[i])
                     for cnt in contours:
                         if cv2.pointPolygonTest(cnt, (cX, cY), False) >= 0:
-                            cv2.drawContours(overlay, [cnt], -1, color=tuple(int(c) for c in colors[idx_file]), thickness=cv2.FILLED)
+                            cv2.drawContours(overlay, [cnt], -1, color=color, thickness=cv2.FILLED)
                             break
-
         # Colorer la meilleure file en rouge
         best_file_chain = files[best_file_id]
         best_coords = []
