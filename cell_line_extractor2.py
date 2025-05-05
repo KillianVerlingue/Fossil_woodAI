@@ -3,6 +3,7 @@ import glob
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import cv2
 import tifffile
 from scipy.spatial import KDTree
@@ -12,12 +13,23 @@ from sklearn.linear_model import LinearRegression
 from sklearn.cluster import DBSCAN
 
 # Paramètres
-distance_threshold = 40 # distance max pour relier deux centroïdes
-distance_fusion = 9  # Distance maximum entre deux centroïdes pour être considérés comme identiques (peut être ajusté)
-tolerance_angle = 16 #tolérance de variation d'angles dans la recherhe de file
-# score_nb = 1 #importance en % du nombre de cellule dans la meilleure file cellulaire
-score_area = 0.01 #importance en % de la variations d'aires dans la meilleure file cellulaire
-score_angle = 0.01 #importance en % de la variations d'angles dans la meilleure file cellulaire
+distance_threshold = 50 # distance max pour relier deux centroïdes
+tolerance_angle = 7 #tolérance de variation d'angles dans la recherhe de file
+score_nb = 0.5 #importance en % du nombre de cellule dans la meilleure file cellulaire
+score_area = 0.15 #importance en % de la variations d'aires dans la meilleure file cellulaire
+score_angle =  0.35 #importance en % de la variations d'angles dans la meilleure file cellulaire
+cells_per_tiles = 45 #nombre estimé de cellules par tuiles (droites à gauches)
+
+
+# Dossiers d'entrée et de sortie
+# input_dir = "/home/killian/sam2/inferences/15485/"
+input_dir = "/home/killian/sam2/inferences/15492/"
+# input_dir = "/home/killian/sam2/inferences/13823/"
+# input_dir = "/home/killian/sam2/inferences/TGV4/"
+output_dir = "/home/killian/sam2/Results/"
+os.makedirs(output_dir, exist_ok=True)
+
+####################### DEFINITIONS DES FONCTIONS #########################
 
 # Fonction pour calculer l'angle entre deux points
 def angle_between(p1, p2):
@@ -29,92 +41,86 @@ def is_aligned(p1, p2, ref_angle, tol=15):
     ang = angle_between(p1, p2)
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
 
+# Fonction pour  calculer le score des files
 def score_file(chain, coords, df_tile):
-    """Calcule un score pour une file."""
     n_cells = len(chain)
 
     # Aire des cellules
     areas = []
+    eq_diams = []
     for cell_idx in chain:
         x, y = coords[cell_idx]
-        mask_row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
-        if not mask_row.empty:
-            area = mask_row.iloc[0]["Area"]
-        else:
-            area = np.nan
-        areas.append(area)
+        row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
+        if not row.empty:
+            areas.append(row.iloc[0]["Area"])
+            eq_diams.append(row.iloc[0]["Equivalent_Diameter"])
     areas = np.array(areas)
-    areas = areas[~np.isnan(areas)]  # Retirer les NaN
+    eq_diams = np.array(eq_diams)
 
     if len(areas) == 0:
-        return -np.inf  # File invalide
+        return -np.inf
 
-    area_std = np.std(areas)  # Écart-type des aires (on veut petit)
-
-    # Calcul des angles
-    angles = []
+    # Normalisations (min-max)
+    area_std = np.std(areas) / np.mean(areas)
+    angle_devs = []
     for i in range(1, len(chain)):
-        p1 = coords[chain[i-1]]
-        p2 = coords[chain[i]]
-        angles.append(angle_between(p1, p2))
-    angles = np.array(angles)
-    if len(angles) > 1:
-        angle_variation = np.std(angles)  # Variabilité des angles (on veut petit)
-    else:
-        angle_variation = 0  # Une seule liaison => parfait
+        angle = angle_between(coords[chain[i-1]], coords[chain[i]])
+        angle_devs.append(angle)
+    angle_var = np.std(angle_devs) / 180 if len(angle_devs) > 1 else 0
 
-    # Score : plus grand nombre de cellules, plus faible variation d'aire, plus faible variation d'angles
-    score = n_cells - (area_std * score_area) - (angle_variation * score_angle)
-
+    # Score pondéré entre 0 et 1
+    score = (
+        (n_cells / cells_per_tiles) * score_nb +  # suppose que 20 est un très bon nombre
+        (1 - area_std) * score_area +  # aire homogène
+        (1 - angle_var) * score_angle  # linéarité
+    )
     return score
 
-# def apply_watershed_contours(binary):
+# Mesurer la disatnce de cellules a son contour
+def distance_to_contour_along_direction(centroid, direction, contour):
+    direction = direction / np.linalg.norm(direction)
+    min_proj_dist = np.inf
 
-#     # Copie du masque
-#     binary_copy = binary.copy()
+    for pt in contour[:, 0, :]:  # contour.shape = (N, 1, 2)
+        vec = pt - centroid
+        proj_length = np.dot(vec, direction)
+        orth_dist = np.linalg.norm(vec - proj_length * direction)
 
-#     # Nettoyage léger pour virer le bruit
-#     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-#     opening = cv2.morphologyEx(binary_copy, cv2.MORPH_OPEN, kernel, iterations=1)
+        # On cherche les points alignés avec la direction (tolérance angulaire)
+        if orth_dist < 1.0:  # tolérance faible => presque aligné
+            if proj_length > 0:  # éviter de prendre des points derrière
+                min_proj_dist = min(min_proj_dist, proj_length)
 
-#     # Calcul du gradient (fort sur les bords)
-#     gradient = cv2.morphologyEx(opening, cv2.MORPH_GRADIENT, kernel)
+    return min_proj_dist if min_proj_dist != np.inf else 0
 
-#     # Marqueurs pour Watershed
-#     # Distance transform pour trouver le centre des cellules
-#     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-#     ret, sure_fg = cv2.threshold(dist_transform, 0.6 * dist_transform.max(), 255, 0)
-#     sure_fg = np.uint8(sure_fg)
+def apply_watershed(binary_mask):
+    # Nettoyage initial
+    kernel = np.ones((3,3), np.uint8)
+    opening = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel, iterations=2)
+    sure_bg = cv2.dilate(opening, kernel, iterations=3)
 
-#     # Définir le fond sûr
-#     sure_bg = cv2.dilate(opening, kernel, iterations=2)
-#     unknown = cv2.subtract(sure_bg, sure_fg)
+    # Distance transform pour trouver les centres de cellules
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    _, sure_fg = cv2.threshold(dist_transform, 0.05 * dist_transform.max(), 255, 0)
 
-#     # Marquage des composantes connectées
-#     ret, markers = cv2.connectedComponents(sure_fg)
+    sure_fg = np.uint8(sure_fg)
+    unknown = cv2.subtract(sure_bg, sure_fg)
 
-#     # Préparer les marqueurs pour Watershed
-#     markers = markers + 1
-#     markers[unknown == 255] = 0
+    # Labellisation des composantes
+    _, markers = cv2.connectedComponents(sure_fg)
+    markers += 1  # pour ne pas avoir de conflit avec l’arrière-plan
+    markers[unknown == 255] = 0
 
-#     # Appliquer Watershed sur une image colorée du gradient pour mieux suivre les bords
-#     color_gradient = cv2.cvtColor(gradient, cv2.COLOR_GRAY2BGR)
-#     markers = cv2.watershed(color_gradient, markers)
+    # Watershed
+    markers = cv2.watershed(cv2.cvtColor(binary_mask * 255, cv2.COLOR_GRAY2BGR), markers)
+    segmented = np.zeros_like(binary_mask)
 
-#     # Reconstruction du masque à partir des marqueurs
-#     watershed_mask = np.zeros_like(binary_copy, dtype=np.uint8)
-#     watershed_mask[markers > 1] = 255
+    # Marquer les régions segmentées
+    segmented[markers > 1] = 1
 
-#     # Extraction finale des contours
-#     contours, _ = cv2.findContours(watershed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return segmented.astype(np.uint8)
 
-#     return contours, (watershed_mask // 255).astype(np.uint8)
-
-# Dossiers d'entrée et de sortie
-input_dir = "/home/killian/sam2/inferences/15492/"
-# input_dir = "/home/killian/sam2/inferences/TGV4/"
-output_dir = "/home/killian/sam2/Results/"
-os.makedirs(output_dir, exist_ok=True)
+################ CHEMINs & DOSSIERS ################
 
 # Créer les sous-dossiers plots et csv
 plots_dir = os.path.join(output_dir, "Plots")
@@ -131,19 +137,34 @@ os.makedirs(csv_dir, exist_ok=True)
 
 csv_files = sorted(glob.glob(os.path.join(input_dir, "mask_measurements_*.csv")), key=numerical_sort)
 
-for input_csv in csv_files:
+######################## PRINCIPAL ##########################
 
+# Création d'un dataframe vide pour collecter toutes les données
+columns = ["Tile_ID", "Nb_Cells", "Area", "Equivalent_Diameter", "Centroid_X", "Centroid_Y", "2P_Thickness"]
+final_results_df = pd.DataFrame(columns=columns)
+
+for input_csv in csv_files:
     df = pd.read_csv(input_csv)
+    if df.empty:
+        print(f"Fichier vide : {input_csv}, ignoré.")
+        continue
+
+    # Vérifier si la colonne 'Tile_ID' existe (sinon, on charge tout)
+    has_tile_id = "Tile_ID" in df.columns
+    tiles = df["Tile_ID"].unique() if has_tile_id else [None]
+    # Stocker les résultats de toutes les tuiles
+    all_filtered_data = []
+    unique_tiles = df["Tile_ID"].unique()
+    
     specimen = os.path.splitext(os.path.basename(input_csv))[0].replace("mask_measurements_", "")
     print(f"Traitement : {specimen}")
 
-    has_tile = "Tile_ID" in df.columns
-    tiles = df["Tile_ID"].unique() if has_tile else [None]
+    summary_data = []
 
-    for tile in tiles:
-        df_tile = df[df["Tile_ID"] == tile].copy() if has_tile else df.copy()
+    for tile in unique_tiles:
+        df_tile = df[df["Tile_ID"] == tile].copy() if has_tile_id else df.copy()
 
-        if has_tile:
+        if has_tile_id:
             df_tile = df_tile.sort_values(by="Area", ascending=False)
             df_tile = df_tile.drop_duplicates(subset=["Tile_ID", "Mask_ID"], keep="first")
 
@@ -152,43 +173,37 @@ for input_csv in csv_files:
         mask_path = os.path.join(input_dir, "mask", tif_name)
         mask = tifffile.imread(mask_path)
         binary = (mask > 0).astype(np.uint8)
+        mask = tifffile.imread(mask_path)
+
+        # wateshed
+        binary = apply_watershed(binary)
 
         # Extraction des contours
-        binary= np.int32(binary)
+        binary = np.int32(binary)
         contours, _ = cv2.findContours(binary, cv2.RETR_FLOODFILL, cv2.CHAIN_APPROX_NONE)
-        # contours, binary = apply_watershed_contours(binary)
-
+        
         # Centroïdes existants
         existing_coords = df_tile[["Centroid_X", "Centroid_Y"]].values.tolist()
         all_coords = existing_coords.copy()
 
-        # Ajouter les centroïdes manquants à partir des contours
+        # Comparaison des centroïdes trouvés via contours avec ceux du masque
         for cnt in contours:
             M = cv2.moments(cnt)
             if M["m00"] == 0:
                 continue
             cx = M["m10"] / M["m00"]
             cy = M["m01"] / M["m00"]
+
+            # Vérifier si ce centroïde est déjà proche d'un centroïde existant
             too_close = any(np.hypot(cx - x, cy - y) < 2 for x, y in existing_coords)
             if not too_close:
-                all_coords.append([cx, cy])
+                all_coords = existing_coords.copy() 
 
-        all_coords = np.array(all_coords)
-
-        # Regrouper les centroïdes trop proches en un seul
-        if len(all_coords) > 1:
-            clustering = DBSCAN(eps=distance_fusion, min_samples=1).fit(all_coords)
-            labels = clustering.labels_
-            merged_coords = []
-            for label in np.unique(labels):
-                points = all_coords[labels == label]
-                merged_coords.append(points.mean(axis=0))  # moyenne des points du cluster
-
-            all_coords = np.array(merged_coords)
+            # Conversion finale en array numpy
+            all_coords = np.array(all_coords)
 
         files = []
         if len(all_coords) > 1:
-            # Graphe de connexion des cellules
             tree = KDTree(all_coords)
             pairs = tree.query_pairs(distance_threshold)
 
@@ -196,12 +211,10 @@ for input_csv in csv_files:
             G.add_nodes_from(range(len(all_coords)))
             G.add_edges_from(pairs)
 
-            # Orientation principale des angles
             angles = [angle_between(all_coords[i], all_coords[j]) for i, j in G.edges]
             hist, bins = np.histogram(angles, bins=36, range=(0, 180))
             main_dir = bins[np.argmax(hist)]
 
-            # Recherche de files cellulaires
             visited = set()
             for node in G.nodes:
                 if node in visited:
@@ -213,115 +226,110 @@ for input_csv in csv_files:
                     current = queue.pop()
                     for neighbor in G.neighbors(current):
                         if neighbor not in visited and is_aligned(all_coords[current], all_coords[neighbor], main_dir, tolerance_angle):
-                            # Vérifier la direction
-                            if len(chain) >= 2:
-                                # Direction précédente
-                                prev = chain[-2]
-                                vec_prev = np.array(all_coords[current]) - np.array(all_coords[prev])
-                                vec_new = np.array(all_coords[neighbor]) - np.array(all_coords[current])
-
-                            #     # Produit scalaire pour voir si on va dans la même direction
-                            #     dot_product = np.dot(vec_prev, vec_new)
-                            #     if dot_product <= 0:
-                            #         continue  # Refuser si on recule
-
                             chain.append(neighbor)
                             queue.append(neighbor)
                             visited.add(neighbor)
                 if len(chain) >= 3:
                     files.append(chain)
 
-            # Sélection de la meilleure file:
+            # Sélection de la meilleure file :
             file_scores = [score_file(chain, all_coords, df_tile) for chain in files]
             best_file_id = np.argmax(file_scores)
 
-            # best_file_id = max(range(len(files)), key=lambda i: len(files[i]))
+        results_per_image = []
 
-        # Plots
+        # Enregistrement des résultats visuels
         fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-
-        #Masques
         axs[0].imshow(binary, cmap="gray")
         axs[0].set_title("Masque Binaire")
         axs[0].axis("off")
 
-        #Graphe de connexions
         axs[1].imshow(np.zeros_like(binary), cmap="gray")
         for cnt in contours:
             axs[1].plot(cnt[:, 0, 0], cnt[:, 0, 1], color='lime', linewidth=1)
-        axs[1].scatter(all_coords[:, 0], all_coords[:, 1], color='red', s=8, label="Centroïdes")
-        if len(all_coords) > 1:
-            for i, j in pairs:
-                x1, y1 = all_coords[i]
-                x2, y2 = all_coords[j]
-                axs[1].plot([x1, x2], [y1, y2], color="yellow", linewidth=0.8, alpha=0.7)
+        axs[1].scatter(all_coords[:, 0], all_coords[:, 1], color='red', s=8)
         axs[1].set_title("Centroïdes + Liens")
         axs[1].axis("off")
 
-        #Files cellulaires colorées
         axs[2].imshow(np.zeros_like(binary), cmap="gray")
         overlay = np.zeros((*binary.shape, 3), dtype=np.uint8)
+
         if files:
-            # Définir des couleurs distinctes pour la meilleure file
             colors = (plt.cm.jet(np.linspace(0, 1, len(files)))[:, :3] * 255).astype(np.uint8)
-            
-            # Colorier toutes les files normalement
-            for idx_file, chain in enumerate(files):
+     
+        # Colorer toutes les files (sauf la meilleure)
+        for idx_file, chain in enumerate(files):
                 for i in chain:
                     cX, cY = map(int, all_coords[i])
                     for cnt in contours:
                         if cv2.pointPolygonTest(cnt, (cX, cY), False) >= 0:
                             cv2.drawContours(overlay, [cnt], -1, color=tuple(int(c) for c in colors[idx_file]), thickness=cv2.FILLED)
                             break
-            
-            # Colorier la meilleure file en rouge
-            best_file_chain = files[best_file_id]
-            for i in best_file_chain:
-                cX, cY = map(int, all_coords[i])
-                for cnt in contours:
-                    if cv2.pointPolygonTest(cnt, (cX, cY), False) >= 0:
-                        cv2.drawContours(overlay, [cnt], -1, color=(255, 0, 0), thickness=cv2.FILLED)  # Rouge pour la meilleure file
 
-            # Ajouter une ligne rouge pour relier les centroïdes de la meilleure file
-            for i in range(1, len(best_file_chain)):
-                x1, y1 = all_coords[best_file_chain[i - 1]]
-                x2, y2 = all_coords[best_file_chain[i]]
-                axs[2].plot([x1, x2], [y1, y2], color="red", linewidth=2)
+        # Colorer la meilleure file en rouge
+        best_file_chain = files[best_file_id]
+        best_coords = []
 
-        # axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binary * 255, cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
+        for i in best_file_chain:
+            cX, cY = map(int, all_coords[i])
+            best_coords.append((cX, cY))
+            for cnt in contours:
+                if cv2.pointPolygonTest(cnt, (cX, cY), False) >= 0:
+                    cv2.drawContours(overlay, [cnt], -1, color=(255, 0, 0), thickness=cv2.FILLED)
+
+        # Tracer une ligne reliant les centroïdes de la meilleure file
+        best_coords = np.array(best_coords)
+        axs[2].plot(best_coords[:, 0], best_coords[:, 1], color="red", linewidth=2, marker='o')
+
         axs[2].imshow(cv2.addWeighted(cv2.cvtColor(np.uint8(binary * 255), cv2.COLOR_GRAY2RGB), 0.3, overlay, 0.7, 0))
- 
         axs[2].set_title("Files Cellulaires Colorées")
         axs[2].axis("off")
 
-        # Enregistrement des données de la meilleure file
-        if files:
-            best_file_data = []
-            best_chain = files[best_file_id]
-            for cell_idx in best_chain:
-                x, y = all_coords[cell_idx]
-                mask_row = df_tile[(df_tile["Centroid_X"] == x) & (df_tile["Centroid_Y"] == y)]
 
-                # Vérification si mask_row contient des données
-                if not mask_row.empty:
-                    area = mask_row.iloc[0]["Area"]
-                    diameter = np.sqrt(4 * area / np.pi)
-                else:
-                    area = np.nan  # Valeur par défaut si aucune donnée n'est trouvée
-                    diameter = np.nan
-
-                best_file_data.append({"Tile_ID": tile, "File_ID": best_file_id, "Centroid_X": x, "Centroid_Y": y,
-                                       "Aire": area, "Diamètre_équivalent": diameter})
-            
-            df_best_file = pd.DataFrame(best_file_data)
-            file_csv_path = os.path.join(csv_dir, f"{os.path.basename(input_csv).replace('.csv', f'_{tile}_best_file.csv')}")
-            df_best_file.to_csv(file_csv_path, index=False)
-            print(f"enregistrement : {file_csv_path}")
-
-        # Sauvegarde
+        # Chemin du fichier à enregistrer
+        plot_filename = f"{specimen}_{tile}_plot.png" if tile else f"{specimen}_plot.png"
+        plot_path = os.path.join(plots_dir, plot_filename)
         plt.tight_layout()
-        plot_file = os.path.join(plots_dir, f"{os.path.basename(input_csv).replace('.csv', f'_{tile}_layout.png')}")
-        plt.savefig(plot_file, dpi=300)
-        plt.close()
+        plt.savefig(plot_path, dpi=300)
+        plt.close(fig)  # Pour libérer la mémoire
 
-        print(f"Fichier final enregistré sous : {plot_file}")
+    # Enregistrement des résultats de la tuile
+    results_per_tile = []
+    if files:
+       best_file_data = []
+    for idx in best_file_chain:
+        cx, cy = all_coords[idx]
+        
+        # Récupérer la ligne correspondante dans df_tile (avec tolérance si besoin)
+        matched_row = df_tile[
+            (np.isclose(df_tile["Centroid_X"], cx, atol=1.0)) &
+            (np.isclose(df_tile["Centroid_Y"], cy, atol=1.0))
+        ]
+        
+        if not matched_row.empty:
+            row = matched_row.iloc[0]
+            best_file_data.append({
+                "Tile_ID": tile,
+                "file_id": best_file_id,
+                "score_file": file_scores[best_file_id],
+                "Cell_ID": row.get("Mask_ID", idx),  # ou un autre identifiant si disponible
+                "Area": row["Area"],
+                "Equivalent_Diameter": row["Equivalent_Diameter"],
+                "Centroid_X": row["Centroid_X"],
+                "Centroid_Y": row["Centroid_Y"],
+                "2P_Thickness": np.nan 
+            })
+
+    results_per_tile.extend(best_file_data)
+
+    # Ajouter les résultats de cette tuile au dataframe global
+    if results_per_tile:
+        df_tile = pd.DataFrame(results_per_tile)
+        final_results_df = pd.concat([final_results_df, df_tile], ignore_index=True)
+
+
+# Écriture d'un seul fichier CSV final par image (PB1 ou PB2)
+output_csv = os.path.join(csv_dir, os.path.basename(input_csv).replace(".csv", "_final.csv"))
+final_results_df.to_csv(output_csv, index=False)
+
+print(f"Fichier final par image sauvegardé : {output_csv}")

@@ -61,16 +61,16 @@ class CustomDataset(Dataset):
         return band
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
-    # parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
+    parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
+    args = parser.parse_args()
 
-    # base_path = args.base_path
+    base_path = args.base_path
 
     # Chemin du dossier contenant les images à traiter
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
-    base_path = "/home/killian/data2025/15485"
+    # base_path = "/home/killian/data2025/15485"
     # base_path = "/home/killian/data2025/15492"  
     # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/13823"  
