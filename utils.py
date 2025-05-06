@@ -41,6 +41,7 @@ def plot_results(output_path, image_np, res_merge, centroids=None):
     plt.savefig(output_path)
     plt.close()
 
+
 def numerical_sort(value):
-    numbers = re.findall(r'\d+', value)
-    return int(numbers[0]) if numbers else 0
+    numbers = re.findall(r'\d+', value)  # Trouver tous les nombres dans la chaîne
+    return [int(num) for num in numbers] if numbers else [0]  # Retourner une liste de nombres, ou [0] si aucun
