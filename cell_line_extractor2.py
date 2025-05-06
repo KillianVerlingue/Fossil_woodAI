@@ -14,10 +14,10 @@ from utils import numerical_sort
 # Paramètres
 distance_threshold = 50 # distance max pour relier deux centroïdes
 tolerance_angle = 12     # tolérance variation d'angles
-Sblt = 0.07              # sensibilité watershed
-score_nb = 0.8           # poids nombre cellules
+Sblt = 0.02              # sensibilité watershed
+score_nb = 0.7           # poids nombre cellules
 score_area = 0.1         # poids variation aires
-score_angle = 0.1       # poids variation angles
+score_angle = 0.2       # poids variation angles
 cells_per_tile = 40     # normalisation nombre cellules
 
 # Dossiers
