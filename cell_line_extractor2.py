@@ -12,8 +12,8 @@ import networkx as nx
 from utils import numerical_sort
 
 # Paramètres
-distance_threshold = 50 # distance max pour relier deux centroïdes
-tolerance_angle = 12     # tolérance variation d'angles
+distance_threshold = 45 # distance max pour relier deux centroïdes
+tolerance_angle = 12   # tolérance variation d'angles
 Sblt = 0.02              # sensibilité watershed
 score_nb = 0.7           # poids nombre cellules
 score_area = 0.1         # poids variation aires
@@ -47,33 +47,35 @@ def is_aligned(p1, p2, ref_angle, tol=tolerance_angle):
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
 
 def score_file(chain, coords, df_tile):
-    areas = []
-    for idx in chain:
-        x, y = coords[idx]
-        row = df_tile[(np.isclose(df_tile['Centroid_X'], x, atol=1)) & (np.isclose(df_tile['Centroid_Y'], y, atol=1))]
-        if not row.empty:
-            areas.append(row.iloc[0]['Area'])
+    # … tes calculs actuels (area_score, angle_score, length_score) …
+    # 1) Straightness
+    xs = coords[chain,0]
+    ys = coords[chain,1]
+    # ajustement linéaire y = a x + b
+    a, b = np.polyfit(xs, ys, 1)
+    # distances au modèle
+    dists = np.abs(a*xs - ys + b) / np.sqrt(a*a + 1)
+    rms_dist = np.sqrt(np.mean(dists**2))
+    straightness_score = 1 - min(rms_dist / 20.0, 1.0)   # 20 px tolérance
 
-    if not areas or len(chain) < 2:
-        return 0.0
+    # 2) Continuity
+    path_len    = sum(np.linalg.norm(coords[chain[i]] - coords[chain[i-1]])
+                      for i in range(1,len(chain)))
+    end2end     = np.linalg.norm(coords[chain[-1]] - coords[chain[0]])
+    continuity_score = end2end / path_len if path_len>0 else 0
 
-    areas = np.array(areas)
-    mean_area = areas.mean()
-    area_std = areas.std() / mean_area if mean_area else 0
-    area_score = 1 - min(area_std, 1.0)  
+    # pondérations révisées
+    w_len  = 0.4   # longueur
+    w_str  = 0.25  # rectitude
+    w_cont = 0.25  # continuité
+    w_ang  = 0.1   # variation d'angle (ou remplacer par orientation_score)
 
-    angle_devs = [angle_between(coords[chain[i - 1]], coords[chain[i]]) for i in range(1, len(chain))]
-    angle_var = np.std(angle_devs) / 180 if len(angle_devs) > 1 else 0
-    angle_score = 1 - min(angle_var, 1.0)  
+    score = (w_len * min(len(chain)/cells_per_tile,1.0) +
+             w_str * straightness_score +
+             w_cont * continuity_score +
+             w_ang * (1 - 0.1 ))  # ou orientation_score
 
-    length_score = min(len(chain) / cells_per_tile, 1.0)  
-
-    # pondération
-    score = (score_nb * length_score +
-             score_area * area_score +
-             score_angle * angle_score)
-
-    return round(score, 4)  # toujours entre 0 et 1
+    return round(score,4)
 
 
 def apply_watershed(binary_mask):
@@ -93,7 +95,10 @@ def apply_watershed(binary_mask):
     return seg
 
 # Lecture des CSV
-csv_files = sorted(glob.glob(os.path.join(input_dir, 'mask_measurements_*.csv')), key=numerical_sort)
+tile_map = {}
+tile_counter = 1
+
+csv_files = sorted(glob.glob(os.path.join(input_dir, 'mask_measurements_*.csv')))
 
 for csv_path in csv_files:
     all_best = []
@@ -107,6 +112,10 @@ for csv_path in csv_files:
         df_tile = df[df['Tile_ID'] == tile].copy() if tile is not None else df.copy()
         if 'Tile_ID' in df.columns:
             df_tile = df_tile.sort_values('Area', ascending=False).drop_duplicates(subset=['Tile_ID','Mask_ID'])
+        if tile not in tile_map:
+            tile_map[tile] = tile_counter
+            tile_counter += 1
+        tile_num = tile_map[tile]
 
         # Charger et segmenter le masque
         fname = f"{specimen}_{tile}_mask.tif" if tile else f"{specimen}_mask.tif"
@@ -219,7 +228,7 @@ for csv_path in csv_files:
         axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binw.astype(np.uint8)*255,cv2.COLOR_GRAY2RGB),0.3,overlay,0.7,0))
         axs[2].plot([coords[i][0] for i in ordered],[coords[i][1] for i in ordered],color='red',linewidth=2,marker='o')
         axs[2].set_title('Files Cellulaires Colorées'); axs[2].axis('off')
-        plot_path = os.path.join(plots_dir, f"{specimen}_{tile}_plot.png")
+        plot_path = os.path.join(plots_dir, f"{specimen}_{tile_num}_plot.png")
         plt.tight_layout(); plt.savefig(plot_path, dpi=300); plt.close(fig)
 
         for order, i in enumerate(ordered):
@@ -229,7 +238,7 @@ for csv_path in csv_files:
                 continue
             cand = cand.copy()
             cand['Corrected_CX'], cand['Corrected_CY'] = x, y
-            cand['Tile_ID'], cand['File_ID'], cand['Order'] = tile, best_idx, order
+            cand['Tile_ID'], cand['File_ID'], cand['Order'] = tile_num, best_idx, order
             if order < len(corrected_thicknesses):
                 cand['2p_Thickness'] = corrected_thicknesses[order]
             else:
