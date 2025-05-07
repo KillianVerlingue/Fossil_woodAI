@@ -7,8 +7,10 @@ This project explores the use and adaptation of SAM2 (Segment Anything Model 2),
 The main objective is to automate the extraction of anatomical characteristics from fossil wood by incorporating a guided approach that follows a gradient of measurements from the pith to the bark. A custom Dataloader is being developed to structure and process this data efficiently.
 
 This project is part of a Master's 2 course in palaeoecology, focusing on the analysis of plant growth in the Permian and Triassic periods. The approach remains exploratory, with the aim of assessing the potential of deep learning techniques for reconstructing palaeoenvironments from fossil wood.
+![image](https://github.com/user-attachments/assets/d4c9a045-e9eb-42ed-9c92-39c2d3fffd65)
+![image](https://github.com/user-attachments/assets/c7425663-6c89-46f6-89a4-64022edd5013)
+![image](https://github.com/user-attachments/assets/e17a4d17-004b-42de-bbc9-0e3b58068d6e)
 
-![X200_15485_PB4 tif_Image_7](https://github.com/user-attachments/assets/994621e9-0a64-44a3-8ec6-04a828a4c4e7)
 
 
 
