@@ -12,7 +12,7 @@ import networkx as nx
 from utils import numerical_sort
 
 # Paramètres
-distance_threshold = 45 # distance max pour relier deux centroïdes
+distance_threshold = 50 # distance max pour relier deux centroïdes
 tolerance_angle = 12   # tolérance variation d'angles
 Sblt = 0.02              # sensibilité watershed
 score_nb = 0.7           # poids nombre cellules
@@ -21,8 +21,8 @@ score_angle = 0.2       # poids variation angles
 cells_per_tile = 40     # normalisation nombre cellules
 
 # Dossiers
-# input_dir = "/home/killian/sam2/inferences/15485/"
-input_dir = "/home/killian/sam2/inferences/15492/"
+input_dir = "/home/killian/sam2/inferences/15485/"
+# input_dir = "/home/killian/sam2/inferences/15492/"
 # input_dir = "/home/killian/sam2/inferences/11478/"
 # input_dir = "/home/killian/sam2/inferences/13823/"
 # input_dir = "/home/killian/sam2/inferences/TGV4/"
@@ -47,35 +47,31 @@ def is_aligned(p1, p2, ref_angle, tol=tolerance_angle):
     return abs((ang - ref_angle + 90) % 180 - 90) < tol
 
 def score_file(chain, coords, df_tile):
-    # … tes calculs actuels (area_score, angle_score, length_score) …
-    # 1) Straightness
     xs = coords[chain,0]
     ys = coords[chain,1]
-    # ajustement linéaire y = a x + b
     a, b = np.polyfit(xs, ys, 1)
-    # distances au modèle
     dists = np.abs(a*xs - ys + b) / np.sqrt(a*a + 1)
     rms_dist = np.sqrt(np.mean(dists**2))
-    straightness_score = 1 - min(rms_dist / 20.0, 1.0)   # 20 px tolérance
+    straightness_score = 1 - min(rms_dist / 20.0, 1.0)
 
-    # 2) Continuity
-    path_len    = sum(np.linalg.norm(coords[chain[i]] - coords[chain[i-1]])
-                      for i in range(1,len(chain)))
-    end2end     = np.linalg.norm(coords[chain[-1]] - coords[chain[0]])
-    continuity_score = end2end / path_len if path_len>0 else 0
+    path_len = sum(np.linalg.norm(coords[chain[i]] - coords[chain[i-1]])
+                   for i in range(1,len(chain)))
+    end2end = np.linalg.norm(coords[chain[-1]] - coords[chain[0]])
+    continuity_score = end2end / path_len if path_len > 0 else 0
+
+    # Nouveau score basé sur la continuité et la taille brute
+    length_score = len(chain)  # pas de normalisation
 
     # pondérations révisées
-    w_len  = 0.4   # longueur
-    w_str  = 0.25  # rectitude
-    w_cont = 0.25  # continuité
-    w_ang  = 0.1   # variation d'angle (ou remplacer par orientation_score)
+    w_len  = 0.3
+    w_str  = 0.35
+    w_cont = 0.35
 
-    score = (w_len * min(len(chain)/cells_per_tile,1.0) +
+    score = (w_len * length_score +
              w_str * straightness_score +
-             w_cont * continuity_score +
-             w_ang * (1 - 0.1 ))  # ou orientation_score
+             w_cont * continuity_score)
 
-    return round(score,4)
+    return round(score, 4)
 
 
 def apply_watershed(binary_mask):
