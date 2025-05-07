@@ -12,20 +12,19 @@ import networkx as nx
 from utils import numerical_sort
 
 # Paramètres
-distance_threshold = 50 # distance max pour relier deux centroïdes
-tolerance_angle = 12   # tolérance variation d'angles
+distance_threshold = 90 # distance max pour relier deux centroïdes
+tolerance_angle = 12  # tolérance variation d'angles
 Sblt = 0.02              # sensibilité watershed
-score_nb = 0.7           # poids nombre cellules
-score_area = 0.1         # poids variation aires
-score_angle = 0.2       # poids variation angles
-cells_per_tile = 40     # normalisation nombre cellules
+w_len = 0.3          # poids nombre cellules
+w_str = 0.35         # poids linéairité
+w_cont = 0.35      # poids cohérences de la file
 
 # Dossiers
-input_dir = "/home/killian/sam2/inferences/15485/"
+# input_dir = "/home/killian/sam2/inferences/15485/"
 # input_dir = "/home/killian/sam2/inferences/15492/"
 # input_dir = "/home/killian/sam2/inferences/11478/"
 # input_dir = "/home/killian/sam2/inferences/13823/"
-# input_dir = "/home/killian/sam2/inferences/TGV4/"
+input_dir = "/home/killian/sam2/inferences/TGV4/"
 # input_dir = "/home/killian/sam2/inferences/TGV5/"
 output_dir = "/home/killian/sam2/Results/"
 plots_dir = os.path.join(output_dir, "Plots")
@@ -62,11 +61,6 @@ def score_file(chain, coords, df_tile):
     # Nouveau score basé sur la continuité et la taille brute
     length_score = len(chain)  # pas de normalisation
 
-    # pondérations révisées
-    w_len  = 0.3
-    w_str  = 0.35
-    w_cont = 0.35
-
     score = (w_len * length_score +
              w_str * straightness_score +
              w_cont * continuity_score)
@@ -99,19 +93,19 @@ csv_files = sorted(glob.glob(os.path.join(input_dir, 'mask_measurements_*.csv'))
 for csv_path in csv_files:
     all_best = []
     df = pd.read_csv(csv_path)
+   
     if df.empty:
         continue
+    has_tile_id = "Tile_ID" in df.columns
+    unique_tiles = df["Tile_ID"].unique()
     specimen = os.path.splitext(os.path.basename(csv_path))[0].replace('mask_measurements_','')
-    tiles = sorted(df['Tile_ID'].unique()) if 'Tile_ID' in df.columns else [None]
 
-    for tile in tiles:
+    for tile in unique_tiles:
         df_tile = df[df['Tile_ID'] == tile].copy() if tile is not None else df.copy()
         if 'Tile_ID' in df.columns:
-            df_tile = df_tile.sort_values('Area', ascending=False).drop_duplicates(subset=['Tile_ID','Mask_ID'])
-        if tile not in tile_map:
-            tile_map[tile] = tile_counter
-            tile_counter += 1
-        tile_num = tile_map[tile]
+            df_tile = df_tile.sort_values('Area', ascending=False)
+            df_tile = df_tile.drop_duplicates(subset=["Centroid_X", "Centroid_Y"], keep="first")
+            df_tile = df_tile.sort_values(by="Centroid_X", ascending=False)
 
         # Charger et segmenter le masque
         fname = f"{specimen}_{tile}_mask.tif" if tile else f"{specimen}_mask.tif"
@@ -224,9 +218,11 @@ for csv_path in csv_files:
         axs[2].imshow(cv2.addWeighted(cv2.cvtColor(binw.astype(np.uint8)*255,cv2.COLOR_GRAY2RGB),0.3,overlay,0.7,0))
         axs[2].plot([coords[i][0] for i in ordered],[coords[i][1] for i in ordered],color='red',linewidth=2,marker='o')
         axs[2].set_title('Files Cellulaires Colorées'); axs[2].axis('off')
-        plot_path = os.path.join(plots_dir, f"{specimen}_{tile_num}_plot.png")
+        plot_path = os.path.join(plots_dir, f"{specimen}_{tile}_plot.png")
         plt.tight_layout(); plt.savefig(plot_path, dpi=300); plt.close(fig)
-
+        
+        selected_indices = []
+      
         for order, i in enumerate(ordered):
             x,y = coords[i]
             cand = df_tile[(np.isclose(df_tile['Centroid_X'],x,atol=1)) & (np.isclose(df_tile['Centroid_Y'],y,atol=1))]
@@ -234,7 +230,7 @@ for csv_path in csv_files:
                 continue
             cand = cand.copy()
             cand['Corrected_CX'], cand['Corrected_CY'] = x, y
-            cand['Tile_ID'], cand['File_ID'], cand['Order'] = tile_num, best_idx, order
+            cand['Tile_ID'], cand['File_ID'], cand['Order'] = tile, best_idx, order
             if order < len(corrected_thicknesses):
                 cand['2p_Thickness'] = corrected_thicknesses[order]
             else:
@@ -243,9 +239,10 @@ for csv_path in csv_files:
 
     # Sauvegarde du CSV pour chaque spécimen
     df_out = pd.DataFrame(all_best)
+    # df_out = sorted(df_out, key=lambda df: numerical_sort(df["Tile_ID"].iloc[0]))
     df_out.sort_values(['Tile_ID','File_ID','Order'], inplace=True)
     output_csv = os.path.join(csv_dir, f'results_{specimen}.csv')
     df_out.to_csv(output_csv, index=False)
-    print(f'Fichier sauvegardé : {output_csv}')
+    print(f"Fichier final enregistré sous : {output_csv}")
 
 print('Terminé')
