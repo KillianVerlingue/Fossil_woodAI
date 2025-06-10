@@ -23,7 +23,7 @@ for input_csv in csv_files:
 
     df = pd.read_csv(input_csv)
     specimen = os.path.splitext(os.path.basename(input_csv))[0].replace("mask_measurements_", "")
-    print(f"🔍 Traitement : {specimen}")
+    print(f"Traitement : {specimen}")
 
     has_tile = "Tile_ID" in df.columns
     tiles = df["Tile_ID"].unique() if has_tile else [None]

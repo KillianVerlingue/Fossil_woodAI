@@ -67,7 +67,6 @@ def score_file(chain, coords, df_tile):
 
     return round(score, 4)
 
-
 def apply_watershed(binary_mask):
     kernel = np.ones((3,3), np.uint8)
     opening = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel, iterations=2)
