@@ -98,7 +98,8 @@ for csv_path in csv_files:
     has_tile_id = "Tile_ID" in df.columns
     unique_tiles = df["Tile_ID"].unique()
     specimen = os.path.splitext(os.path.basename(csv_path))[0].replace('mask_measurements_','')
-
+    
+    seen_coords = set()
     for tile in unique_tiles:
         df_tile = df[df['Tile_ID'] == tile].copy() if tile is not None else df.copy()
         if 'Tile_ID' in df.columns:
@@ -223,8 +224,13 @@ for csv_path in csv_files:
         selected_indices = []
       
         for order, i in enumerate(ordered):
-            x,y = coords[i]
-            cand = df_tile[(np.isclose(df_tile['Centroid_X'],x,atol=1)) & (np.isclose(df_tile['Centroid_Y'],y,atol=1))]
+            x, y = coords[i]
+            key = (tile, round(x, 1), round(y, 1))
+            if key in seen_coords:
+                continue  # Déjà traité
+            seen_coords.add(key)
+
+            cand = df_tile[(np.isclose(df_tile['Centroid_X'], x, atol=1)) & (np.isclose(df_tile['Centroid_Y'], y, atol=1))]
             if cand.empty:
                 continue
             cand = cand.copy()
@@ -237,6 +243,7 @@ for csv_path in csv_files:
             all_best.append(cand.iloc[0].to_dict())
 
     # Sauvegarde du CSV pour chaque spécimen
+    
     df_out = pd.DataFrame(all_best)
     # df_out = sorted(df_out, key=lambda df: numerical_sort(df["Tile_ID"].iloc[0]))
     df_out.sort_values(['Tile_ID','File_ID','Order'], inplace=True)
