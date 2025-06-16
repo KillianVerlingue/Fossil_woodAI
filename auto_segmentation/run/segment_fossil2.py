@@ -59,6 +59,19 @@ class CustomDataset(Dataset):
             band = band[:, :, :3]  # Garder seulement les 3 premiers canaux (RGB)
 
         return band
+    
+def filter_mask_objects_by_area(components_info, lower_q=2.5, upper_q=97.5):
+    
+    areas = [obj[2] for obj in components_info]
+    if not areas:
+        return []
+
+    min_area = np.percentile(areas, lower_q)
+    max_area = np.percentile(areas, upper_q)
+
+    filtered = [obj for obj in components_info if min_area <= obj[2] <= max_area]
+    return filtered
+
 
 if __name__ == "__main__":
 #     parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
@@ -114,7 +127,7 @@ if __name__ == "__main__":
         crop_n_layers=6,  # Ammeliore la segmentation des petites structures
         box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
-        min_mask_region_area=6.0,  # Conserver plus de petits objets
+        min_mask_region_area=25.0,  # Conserver plus de petits objets
         use_m2m=True,  # Mode avancé 
     )
 
@@ -140,18 +153,21 @@ if __name__ == "__main__":
             filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
             res_merge = filtered_tensor.any(dim=0)
 
-            masks_info = []
+            components_info = []
+
             for mask_id, mask_pred in enumerate(filtered_tensor):
                 mask_np = mask_pred.numpy().astype(np.uint8)
                 num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
-            
 
-                for j in range(1, num_labels):
+                for j in range(1, num_labels):  # Skip background
                     x, y = centroids[j]
                     area = stats[j, cv2.CC_STAT_AREA]
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
+                    components_info.append((x, y, area, equivalent_diameter, mask_id))
 
-                    masks_info.append((x,y,area, equivalent_diameter, mask_id))
+            # Filtrage par quantiles
+            masks_info = filter_mask_objects_by_area(components_info, lower_q=2.5, upper_q=97.5)
+
                     # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
             masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
 
