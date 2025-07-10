@@ -15,7 +15,34 @@ from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
 class CustomDataset(Dataset):
+    """
+    A custom dataset for extracting patches from a raster image (.tif).
+    Only a central horizontal band is used, divided into tiles with an optional overlap.
+
+    Attributes:
+        input_raster (str): Path to input raster file (.tif).
+        tile_size (int): Size (squared) of extracted tiles. (Default 640)
+        stride (int): Horizontal offset between each tile. (Default 630)
+        transforms (callable, optional): Transforms to be applied to each tile.
+        raster_shape (tuple): Dimensions of original raster image.
+        height (int): Image height (in px).
+        width (int): Image width (in px).
+        channels (int): Number of channels in image (default 3).
+        num_tiles_x (int): Number of extracted horizontal tiles.
+        num_tiles_y (int): Set to 1, as only a central strip is cut.
+        center_y (int): Horizontal center position for extraction.
+        tile_y_start (int): Horizontal start position for extracting center strip.
+    """
     def __init__(self, input_raster, tile_size=640, stride=630, transforms=None):
+        """
+        Initializes dataset.
+
+        Args:
+            input_raster (str): Raster file path (.tif).
+            tile_size (int): Tile size squared (default 640).
+            stride (int): Horizontal offset between tiles. (Default 630).
+            transforms (callable): Transforms to be applied to each tile (No transforms).
+        """
         self.input_raster = input_raster
         self.tile_size = tile_size
         self.stride = stride
@@ -37,6 +64,12 @@ class CustomDataset(Dataset):
         self.tile_y_start = max(0, self.center_y - self.tile_size // 2)  
 
     def __len__(self):
+        """
+        return the total number of horizontale tile 
+
+        Returns:
+            int: Total number of tile
+        """
         return self.num_tiles_x  
 
     def __getitem__(self, idx):
@@ -54,24 +87,38 @@ class CustomDataset(Dataset):
         if self.transforms:
             band = self.transforms(band)
             
-                # Convertir l'image en RGB si elle a 4 canaux (RGBA)
-        if band.shape[2] == 4:  # Si l'image est RGBA
-            band = band[:, :, :3]  # Garder seulement les 3 premiers canaux (RGB)
+                # Convert in 3 chanels
+        if band.shape[2] == 4:  # if the image is on RGBA
+            band = band[:, :, :3]  # keep olny the 3 first (RGB)
 
         return band
     
-def filter_mask_objects_by_area(components_info, lower_q=2.5, upper_q=97.5):
-    
-    areas = [obj[2] for obj in components_info]
-    if not areas:
+def filter_by_area_distribution(components_info, z_thresh=2.5):
+    """
+    Supprime les objets dont la surface est aberrante par rapport à la distribution des aires.
+
+    Cette fonction calcule la moyenne et l'écart-type des aires des objets, puis filtre
+    ceux dont l'aire est située à plus de `z_thresh` écarts-types de la moyenne.
+
+    Args:
+        components_info (list of tuple): Liste de tuples (x, y, area, equivalent_diameter, mask_id).
+        z_thresh (float): Seuil z-score pour le filtrage (par défaut 2.5).
+
+    Returns:
+        list: Liste filtrée de composants ne contenant que les objets valides.
+    """
+    if not components_info:
         return []
 
-    min_area = np.percentile(areas, lower_q)
-    max_area = np.percentile(areas, upper_q)
+    areas = np.array([obj[2] for obj in components_info])
+    mean_area = np.mean(areas)
+    std_area = np.std(areas)
 
-    filtered = [obj for obj in components_info if min_area <= obj[2] <= max_area]
+    filtered = [
+        obj for obj in components_info
+        if abs(obj[2] - mean_area) <= z_thresh * std_area
+    ]
     return filtered
-
 
 if __name__ == "__main__":
 #     parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
@@ -84,9 +131,9 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
-    # base_path = "/home/killian/data2025/15492"  
+    base_path = "/home/killian/data2025/15492"  
     # base_path = "/home/killian/data2025/11478"  
-    base_path = "/home/killian/data2025/17689"  
+    # base_path = "/home/killian/data2025/17689"  
     
     
     # Récupérer tous les fichiers .tif
@@ -124,7 +171,7 @@ if __name__ == "__main__":
         pred_iou_thresh=0.65,  # Reduire pour accepter plus de mask
         stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
-        crop_n_layers=6,  # Ammeliore la segmentation des petites structures
+        crop_n_layers=2,  # Ammeliore la segmentation des petites structures
         box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
         min_mask_region_area=25.0,  # Conserver plus de petits objets
@@ -166,7 +213,7 @@ if __name__ == "__main__":
                     components_info.append((x, y, area, equivalent_diameter, mask_id))
 
             # Filtrage par quantiles
-            masks_info = filter_mask_objects_by_area(components_info, lower_q=2.5, upper_q=97.5)
+            masks_info = filter_by_area_distribution(components_info, z_thresh=5)
 
                     # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
             masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
@@ -246,4 +293,3 @@ if __name__ == "__main__":
             plt.close()
 
     print(f"Traitement du dossier {output_dir} terminé ")
-
