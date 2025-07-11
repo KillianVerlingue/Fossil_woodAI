@@ -131,11 +131,13 @@ if __name__ == "__main__":
     # base_path = "/home/killian/data2025/TGV4"
     # base_path = "/home/killian/data2025/TGV5"  
     # base_path = "/home/killian/data2025/15485"
-    base_path = "/home/killian/data2025/15492"  
+    # base_path = "/home/killian/data2025/15492"  
     # base_path = "/home/killian/data2025/11478"  
     # base_path = "/home/killian/data2025/17689"  
-    
-    
+    # base_path = "/home/killian/data2025/18160"  
+    # base_path = "/home/killian/data2025/Actual_Wood"
+    base_path = "/home/killian/data2025/Other_tissue"   
+
     # Récupérer tous les fichiers .tif
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
     if not image_paths:
@@ -171,7 +173,7 @@ if __name__ == "__main__":
         pred_iou_thresh=0.65,  # Reduire pour accepter plus de mask
         stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
         stability_score_offset=0.8,
-        crop_n_layers=2,  # Ammeliore la segmentation des petites structures
+        crop_n_layers=6,  # Ammeliore la segmentation des petites structures
         box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
         crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
         min_mask_region_area=25.0,  # Conserver plus de petits objets

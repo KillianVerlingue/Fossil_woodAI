@@ -10,6 +10,7 @@ from utils import numerical_sort
 
 # Dossiers
 input_dir = "/home/killian/sam2/inferences/15492"
+input_dir = "/home/killian/sam2/inferences/15485"
 output_dir = "/home/killian/sam2/Results/"
 plots_dir = os.path.join(output_dir, "Connected_Cells", os.path.basename(os.path.normpath(input_dir)))
 os.makedirs(plots_dir, exist_ok=True)
