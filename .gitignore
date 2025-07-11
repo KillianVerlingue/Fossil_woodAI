@@ -15,3 +15,4 @@ checkpoints/
 demo/backend/checkpoints/*.pt
 inferences/
 inferences_prompt/
+venv/
