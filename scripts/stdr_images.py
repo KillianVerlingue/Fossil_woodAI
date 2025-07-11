@@ -5,8 +5,8 @@ import glob
 import numpy as np
 
 scale_percent = 3.2  # Pourcentage de réduction
-input_folder = "/home/killian/data2025"
-output_folder = "/home/killian/data2025_cleaned"
+input_folder = "/path/to/input"
+output_folder = "/path/to/output"
 os.makedirs(output_folder, exist_ok=True)
 
 tif_files = glob.glob(os.path.join(input_folder, "**", "*.tif"), recursive=True)
@@ -15,7 +15,7 @@ for tif_path in tif_files:
     try:
         image = tifffile.imread(tif_path)
 
-        # Gestion des images en niveaux de gris
+        # Handle greyscale
         if image.ndim == 2:
             image = np.expand_dims(image, axis=-1)
 
@@ -27,6 +27,6 @@ for tif_path in tif_files:
 
         output_path = os.path.join(output_folder, os.path.basename(tif_path))
         tifffile.imwrite(output_path, resized)
-        print(f"[✓] Redimensionné : {os.path.basename(tif_path)} → {new_width}x{new_height}")
+        print(f"[✓] Rescaled : {os.path.basename(tif_path)} → {new_width}x{new_height}")
     except Exception as e:
-        print(f"[✗] Erreur sur {tif_path}: {e}")
+        print(f"[✗] Error on {tif_path}: {e}")
