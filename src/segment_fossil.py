@@ -2,8 +2,6 @@ import os
 import glob
 import numpy as np
 import tifffile
-import matplotlib.pyplot as plt
-import matplotlib.patheffects as path_effects
 import csv
 import cv2
 import argparse
@@ -14,7 +12,35 @@ from torch.utils.data import Dataset, DataLoader
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-class CustomDataset(Dataset):
+# base_path = "/path/to/your/directory"  
+
+# size_threshold = 10000 # Threshold for filtering out oversized objects
+# mettre dans un parser 
+
+def parse_arguments():
+    """
+    Analyzes command-line arguments to configure input and output paths.
+
+    Uses argparse to allow the user to specify :
+        - the input directory containing .tif images to be segmented
+        - the output directory for saving results in Data directory and Plot directory .
+
+    Returns:
+    argparse.Namespace: An object containing the arguments `input` (str) and `output` (str).
+        
+    Example of command-line use:
+    python script.py --input /path/to/your/folder --output /path/to/results
+    """
+    parser = argparse.ArgumentParser(description="Mask analysis and export of CSV and plot results")
+    parser.add_argument('--base_path', '-i', type=str, required=True,
+                        help='path to your input directory with .tif images')
+    parser.add_argument('--output', '-o', type=str, required=True,
+                        help='Output directory where results (CSV, masks, etc.) will be saved')
+    parser.add_argument('--size_threshold', type=int, required=False, default=10_000,
+                        help='hyperparameter for maximum size to segment cells in px')
+    return parser.parse_args()
+ 
+class TilingDataset(Dataset):
     """
     A custom dataset for extracting patches from a raster image (.tif).
     Only a central horizontal band is used, divided into tiles with an optional overlap.
@@ -87,25 +113,25 @@ class CustomDataset(Dataset):
         if self.transforms:
             band = self.transforms(band)
             
-                # Convert in 3 chanels
+        # Convert in 3 chanels
         if band.shape[2] == 4:  # if the image is on RGBA
             band = band[:, :, :3]  # keep olny the 3 first (RGB)
 
         return band
-    
+
 def filter_by_area_distribution(components_info, z_thresh=2.5):
     """
-    Supprime les objets dont la surface est aberrante par rapport à la distribution des aires.
+    Removes objects whose surface area is at variance with the area distribution.
 
-    Cette fonction calcule la moyenne et l'écart-type des aires des objets, puis filtre
-    ceux dont l'aire est située à plus de `z_thresh` écarts-types de la moyenne.
+    This function calculates the mean and standard deviation of object areas, then filters
+    those whose area is more than `z_thresh` standard deviations from the mean.
 
     Args:
-        components_info (list of tuple): Liste de tuples (x, y, area, equivalent_diameter, mask_id).
-        z_thresh (float): Seuil z-score pour le filtrage (par défaut 2.5).
+        components_info (list of tuple): List of tuples (x, y, area, equivalent_diameter, mask_id).
+        z_thresh (float): z-score threshold for filtering (default 2.5).
 
     Returns:
-        list: Liste filtrée de composants ne contenant que les objets valides.
+        list: Filtered list of components containing only valid objects.
     """
     if not components_info:
         return []
@@ -120,86 +146,72 @@ def filter_by_area_distribution(components_info, z_thresh=2.5):
     ]
     return filtered
 
-if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Traitement de segmentation des fossiles.")
-#     parser.add_argument('--base_path', type=str, required=True, help='Chemin de base pour le traitement')
-#     args = parser.parse_args()
+def segment_cells(args):
+    
+    args = parse_arguments()
+    base_path = args.base_path
 
-#     base_path = args.base_path
-
-    # Chemin du dossier contenant les images à traiter
-    # base_path = "/home/killian/data2025/TGV4"
-    # base_path = "/home/killian/data2025/TGV5"  
-    # base_path = "/home/killian/data2025/15485"
-    # base_path = "/home/killian/data2025/15492"  
-    # base_path = "/home/killian/data2025/11478"  
-    # base_path = "/home/killian/data2025/17689"  
-    # base_path = "/home/killian/data2025/18160"  
-    # base_path = "/home/killian/data2025/Actual_Wood"
-    base_path = "/home/killian/data2025/Other_tissue"   
-
-    # Récupérer tous les fichiers .tif
-    image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # Liste des fichiers TIF
+    # load all .tif files
+    image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # List of tif files
     if not image_paths:
-        print(f"Aucune image trouvée dans {base_path}")
+        print(f"No images found {base_path}")
         exit()
 
-    # Extraire le nom du dossier parent
+    # Take parent's name of file
     base_folder = os.path.basename(base_path)  
 
-    # Générer un dossier de sortie pour ce jeu de données
-    output_dir = f"/home/killian/sam2/inferences/{base_folder}"
-    os.makedirs(output_dir, exist_ok=True)       
+    # Generate an output folder for this dataset
+    output_dir = os.path.join(args.output, base_folder)
+    os.makedirs(output_dir, exist_ok=True)
     mask_dir = os.path.join(output_dir, "mask")
     os.makedirs(mask_dir, exist_ok=True)
+    data_dir = os.path.join(output_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
 
-    # Créer un fichier CSV global pour chaques images
+    # make a global .csv fro each images
     csv_masks_file = os.path.join(output_dir, f"mask_measurements_{base_folder}.csv")
     with open(csv_masks_file, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["Image_Name", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
 
-    # Chargement du modèle
+    # load SAM2
     checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
     model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
 
     sam2 = build_sam2(model_cfg, checkpoint, device="cuda", apply_postprocessing=False)
     
-    #Hyperparametres
+    #Hyperparametres for SAM2
     model = SAM2AutomaticMaskGenerator(
         model=sam2,
-        points_per_side=40,  # Plus de points pour capturer les details
-        points_per_batch=30,  # Augmenter pour calculer le nbre de points pris en meme temps (/!\ GPU)
-        pred_iou_thresh=0.65,  # Reduire pour accepter plus de mask
-        stability_score_thresh=0.80,  # Rzduire pour ne pas exclure trop de mask
+        points_per_side=40,  
+        points_per_batch=30,  
+        pred_iou_thresh=0.65,  
+        stability_score_thresh=0.80,  
         stability_score_offset=0.8,
-        crop_n_layers=6,  # Ammeliore la segmentation des petites structures
-        box_nms_thresh=0.60,  # Eviter la suppression excessive de petite structure
-        crop_n_points_downscale_factor=1.5,  # Adapter aux images a haute resolution
-        min_mask_region_area=25.0,  # Conserver plus de petits objets
-        use_m2m=True,  # Mode avancé 
+        crop_n_layers=2,  
+        box_nms_thresh=0.60,  
+        crop_n_points_downscale_factor=1.5, 
+        min_mask_region_area=25.0,  
+        use_m2m=True, 
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    size_threshold = 720 # Seuil pour filtrer les objets trop grands
-    # (0.5060 px/µm) donc <280µm pour
-
-    # Boucle sur toutes les images du dossier
+    # Loop over all images in the folder
     for path in image_paths:
         image_name = os.path.basename(path)  
-        print(f"Traitement de {image_name}...")
+        print(f"Processing {image_name}...")
 
-        dataset = CustomDataset(path, tile_size=640, stride=630)
+        dataset = TilingDataset(path, tile_size=640, stride=630)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
         for i, image in enumerate(dataloader):
-            print(f"  Image {i+1}/{len(dataloader)} - Avancement : {i/len(dataloader):.2%}")
+            print(f"  Image {i+1}/{len(dataloader)} - Progress : {i/len(dataloader):.2%}")
 
             image_np = image.squeeze(0).cpu().numpy()
             pred = model.generate(image_np)
             res_tensor = torch.stack([torch.tensor(m['segmentation'], dtype=torch.bool) for m in pred])
-            filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= size_threshold]
+            filtered_tensor = res_tensor[res_tensor.sum(dim=(1, 2)) <= args.size_threshold]
             res_merge = filtered_tensor.any(dim=0)
 
             components_info = []
@@ -214,27 +226,27 @@ if __name__ == "__main__":
                     equivalent_diameter = np.sqrt(4 * area / np.pi)
                     components_info.append((x, y, area, equivalent_diameter, mask_id))
 
-            # Filtrage par quantiles
+            # Filtring by quantile
             masks_info = filter_by_area_distribution(components_info, z_thresh=5)
 
-                    # Trier les masques du haut (Y max) vers le bas (Y min) et de la droite (X max) vers la gauche (X min)
-            masks_info.sort(key=lambda m: (-m[1], -m[0]))  # Trier d'abord par Y décroissant, puis par X décroissant)
+            # Sort masks from top (Y max) to bottom (Y min) and from right (X max) to left (X min)
+            masks_info.sort(key=lambda m: (-m[1], -m[0]))  
 
-            # Définir le chemin spécifique pour chaque image
+            # Define the specific path for each image
             csv_image_file = os.path.join(output_dir, f"mask_measurements_{image_name}.csv")
 
-            # Vérifier si le fichier existe déjà (pour ne pas réécrire l'entête à chaque tuile)
+            # Check if the file already exists (to avoid rewriting the header for each tile)
             file_exists = os.path.isfile(csv_image_file)
             
-            # Sauvegarde du masque binaire dans le dossier mask/
+            # Save binary mask in mask/ folder
             mask_output_path = os.path.join(mask_dir, f"{image_name}_Image_{i}_mask.tif")
             tifffile.imwrite(mask_output_path, res_merge.cpu().numpy().astype(np.uint8) * 255)
 
-            # Ouvrir en mode append ('a') pour ajouter les nouvelles tuiles
+            # Open in append mode (‘a’) to add new tiles
             with open(csv_image_file, mode='a', newline='') as file:
                 writer = csv.writer(file)
 
-                # Écrire l'entête uniquement si le fichier n'existe pas encore
+                # Write header only if file does not yet exis
                 if not file_exists:
                     writer.writerow(["Tile_ID", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
                 
@@ -244,54 +256,36 @@ if __name__ == "__main__":
                     if key not in unique_masks or area > unique_masks[key][2]:  # index 2 = area
                         unique_masks[key] = (x, y, area, equivalent_diameter, mask_id)
 
-                # Écrire les données filtrées dans le fichier
+                # Write filtered data to file
                 for x, y, area, equivalent_diameter, mask_id in unique_masks.values():
                     writer.writerow([f"Image_{i}", mask_id, x, y, area, equivalent_diameter])
                
+            # Creation of the figure to display the predicted image and masks
+            try : 
+                import matplotlib.pyplot as plt
+                plt.figure(figsize=(12, 6))
+            
+                # Saving images
+                plt.figure(figsize=(12, 6))
+                plt.subplot(1, 2, 1)
+                plt.imshow(image_np)
+                plt.title("Image")
+                plt.axis('off')
 
-            # Création de la figure pour afficher l'image et les masques prédits
-            plt.figure(figsize=(12, 6))
+                plt.subplot(1, 2, 2)
+                plt.imshow(res_merge.cpu().numpy(), cmap='gray')
+                plt.title("Mask")
+                plt.axis('off')
 
-            # # Affichage de l'image originale
-            # plt.subplot(1, 2, 1)
-            # plt.imshow(image_np)
-            # plt.title("Image Originale")
-            # plt.axis('off')
+                output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
+                plt.savefig(output_img_path)
+                plt.close()
+            except ModuleNotFoundError : 
+                print("Matplotlib not found, unable to generate plots")
 
-            # # Affichage des masques prédits
-            # plt.subplot(1, 2, 2)
-            # plt.imshow(res_merge.cpu().numpy(), cmap='gray')
-            # plt.title("Masques Prédits")
-            # plt.axis('off')
+    return
 
-            # # Ajout des IDs des masques sur l'image des masques prédits
-            # for x, y, area, equivalent_diameter, mask_id in masks_info:
-            #     text = plt.text(
-            #         x, y, str(mask_id), 
-            #         color='blue', fontsize=6, fontweight='bold', ha='center', va='center'
-            #     )
-            #     # Ajout d'un contour noir pour améliorer la lisibilité
-            #     text.set_path_effects([path_effects.Stroke(linewidth=1, foreground='black'), path_effects.Normal()])
-
-            # # Sauvegarde de l'image avec les IDs des masques annotés
-            # output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
-            # plt.savefig(output_img_path, dpi=300)  # Augmentation de la résolution pour plus de lisibilité
-            # plt.close()
-        
-            # Sauvegarde des images
-            plt.figure(figsize=(12, 6))
-            plt.subplot(1, 2, 1)
-            plt.imshow(image_np)
-            plt.title("Image Originale")
-            plt.axis('off')
-
-            plt.subplot(1, 2, 2)
-            plt.imshow(res_merge.cpu().numpy(), cmap='gray')
-            plt.title("Masques Prédits")
-            plt.axis('off')
-
-            output_img_path = os.path.join(output_dir, f"{image_name}_Image_{i}.png")
-            plt.savefig(output_img_path)
-            plt.close()
-
-    print(f"Traitement du dossier {output_dir} terminé ")
+if __name__ == "__main__":
+    
+    args = parse_arguments()
+    segment_cells
