@@ -1,0 +1,32 @@
+[build-system]
+requires = [""]
+build-backend = ""
+
+[project]
+name = "samwood"
+version = "0.1.0"
+
+dependencies = [
+  "numpy>=1.20",
+  "tifffile>= 1.10
+  "scikit-image>=0.19",    # cell_line_extractor only
+  "opencv-python>=4.5",
+  "pandas>=1.3",           # cell_line_extractor only
+]
+
+description = "Extraction and segmentation tools to take wood anatomy measurements along the growth direction"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Killian Verlingue", email = "killian.verlingue@gmail.com"
+    name = "Paul Tresson", email = "email@mail.com" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+
+
+[project.urls]
+"Source" = "https://github.com/KillianVerlingue/Fossil_woodAI"
+
