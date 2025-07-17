@@ -167,10 +167,12 @@ def sam2_evaluate():
 
     # Params
     dataset_path = '/home/killian/Annotations/Annotations'
-    checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
-    config_path = "configs/sam2.1/sam2.1_hiera_s.yaml"
     output_dir = "/home/killian/sam2/predictions"
     os.makedirs(output_dir, exist_ok=True)
+   
+    checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
+    config_path = "configs/sam2.1/sam2.1_hiera_s.yaml"
+ 
 
     # Metriques
     device = get_device()
