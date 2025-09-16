@@ -1,6 +1,6 @@
 # SAMWOOD 
 
-## Segmentation and Analysis of Fossil Wood Anatomical Sections with SAM2 (Fossil_WoodAI)
+## Segmentation and Analysis of Fossil Wood Anatomical Sections with SAM2 (SAMWOOD)
 
 This project explores the use and adaptation of SAM2 (Segment Anything Model 2), a Vision Transformer, for the segmentation and measurement of fossil wood cells in anatomical section.
 
