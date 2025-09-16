@@ -1,4 +1,4 @@
-# Fossil_woodAI
+# SAMWOOD 
 
 ## Segmentation and Analysis of Fossil Wood Anatomical Sections with SAM2 (Fossil_WoodAI)
 
