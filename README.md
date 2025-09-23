@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-
 # SAMWOOD
 
 ## Segmentation and Analysis of (Actual & fossil) Wood Anatomical Sections with SAM2
