@@ -10,6 +10,7 @@ outputs/*
 checkpoints/*.pt
 sam2/*.pt
 sam2/*.yaml
+sam2/
 checkpoints/
 *.pt.1
 demo/backend/checkpoints/*.pt
