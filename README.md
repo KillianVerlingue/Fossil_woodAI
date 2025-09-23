@@ -11,3 +11,32 @@ This project is part of a Master's 2 course in palaeoecology, focusing on the an
 
 ![image](https://github.com/user-attachments/assets/e17a4d17-004b-42de-bbc9-0e3b58068d6e)
 ![image](https://github.com/user-attachments/assets/8b878974-1cbe-41bf-a603-d0bdd1482c0f)
+
+## Installation
+
+To install, you can use the following command
+
+```
+pip install .......
+```
+
+
+## Segment cells on an image
+
+```
+python src/segment_fossil.py
+```
+
+## Create connection graph and identify cell lines
+
+```
+python src/segment_fossil.py
+```
+
+## Export results to .csv
+
+```
+python src/segment_fossil.py
+```
+
+
