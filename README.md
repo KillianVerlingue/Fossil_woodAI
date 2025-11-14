@@ -3,6 +3,8 @@
 
 SamWood is an open-source Python package designed to automate the segmentation and measurement of wood cells in transverse sections of both modern and fossil samples.
 It uses SAM2 (Segment Anything Model 2) from Ravi et al.2024 (https://arxiv.org/abs/2408.00714) , a state-of-the-art Vision Transformer for zero-shot segmentation, and a dedicated algorithms to reconstruct cell files and extract anatomical traits along growth gradients.
+<img width="1240" height="1014" alt="image" src="https://github.com/user-attachments/assets/ce7634b0-ec3c-4395-9f9c-642afa0f6e50" />
+
 
 This repository accompanies the scientific article:
 ## SAMWOOD: An automated method to measure wood cells along growth orientation
