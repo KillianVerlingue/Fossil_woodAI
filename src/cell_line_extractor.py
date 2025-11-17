@@ -12,8 +12,8 @@ from scipy.spatial import KDTree #
 import networkx as nx
 from utils import numerical_sort
 
-# input = "/home/killian/sam2/inferences/TGV4/"
-# outpout = "/home/killian/sam2/Results/"
+# input = "/path/your/input/directory..."
+# outpout = "/path/your/output/directory..."
 
 # Parameters
 distance_threshold = 90 # maximal distance to link centroid of 2 cells
@@ -43,23 +43,6 @@ def parse_arguments():
     parser.add_argument('--output', '-o', type=str, default='./Results/',
                         help='path to outpout(default: ./Results/).')
     return parser.parse_args()
-
-
-# # # Directory
-# # input_dir = "/home/killian/sam2/inferences/15485/"
-# # input_dir = "/home/killian/sam2/inferences/15492/"
-# # input_dir = "/home/killian/sam2/inferences/11478/"
-# # input_dir = "/home/killian/sam2/inferences/13823/"
-# input_dir = "/home/killian/sam2/inferences/TGV4/"
-# # input_dir = "/home/killian/sam2/inferences/TGV5/"
-# output_dir = "/home/killian/sam2/Results/"
-# plots_dir = os.path.join(output_dir, "Plots")
-# csv_dir = os.path.join(output_dir, "Data")
-# specimen_name = os.path.basename(os.path.normpath(input_dir))
-# plots_dir = os.path.join(plots_dir, specimen_name)
-# csv_dir = os.path.join(csv_dir, specimen_name)
-# for d in [output_dir, plots_dir, csv_dir]:
-#     os.makedirs(d, exist_ok=True)
 
 # Functions
 def angle_between(p1, p2):
@@ -204,7 +187,7 @@ def cell_line_extraction(args):
                 df_tile = df_tile.drop_duplicates(subset=["Centroid_X", "Centroid_Y"], keep="first")
                 df_tile = df_tile.sort_values(by="Centroid_X", ascending=False)
 
-            # load and apply watershed ton find contours
+            # Load and apply watershed ton find contours
             fname = f"{specimen}_{tile}_mask.tif" if tile else f"{specimen}_mask.tif"
             mask = tifffile.imread(os.path.join(input_dir, 'mask', fname)) > 0
             binw = apply_watershed(mask.astype(np.uint8))
@@ -246,7 +229,7 @@ def cell_line_extraction(args):
                         if abs((angle - main_ang + 90) % 180 - 90) < tolerance_angle:
                             G.add_edge(i, j)
 
-            # Détection des chaînes alignées
+            # Aligned chains detection
             chains = []
             vis = set()
             for n in G.nodes:
@@ -266,14 +249,13 @@ def cell_line_extraction(args):
             if not chains:
                 continue
 
-
-            # Sélection de la meilleure file
+            # Selection of the best line
             scores = [score_file(c, coords, df_tile) for c in chains]
             best_idx = int(np.argmax(scores))
             best_chain = chains[best_idx]
             ordered = sorted(best_chain, key=lambda i: coords[i][0])
 
-            # Calcul des 2p_Thickness
+            # Measurements of the thickness of the x2 walls of the cells
             corrected_thicknesses = []
             for i in range(len(ordered) - 1):
                 p1 = coords[ordered[i]]
@@ -286,7 +268,7 @@ def cell_line_extraction(args):
                 corrected = full_dist - inside_dist
                 corrected_thicknesses.append(corrected)
 
-            # Collecte des données et visuels
+            # Data collection
             fig, axs = plt.subplots(1,3,figsize=(15,5))
             axs[0].imshow(binw, cmap='gray'); axs[0].set_title('Masque Binaire'); axs[0].axis('off')
             axs[1].imshow(np.zeros_like(binw), cmap='gray');
@@ -339,7 +321,7 @@ def cell_line_extraction(args):
                     cand['2p_Thickness'] = np.nan
                 all_best.append(cand.iloc[0].to_dict())
 
-        # Sauvegarde du CSV pour chaque spécimen
+        # CSV backup for each specimen
         
         df_out = pd.DataFrame(all_best)
         # df_out = sorted(df_out, key=lambda df: numerical_sort(df["Tile_ID"].iloc[0]))
