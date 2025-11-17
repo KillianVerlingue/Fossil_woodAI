@@ -151,7 +151,7 @@ def segment_cells(args):
     args = parse_arguments()
     base_path = args.base_path
 
-    # load all .tif files
+    # Load all .tif files
     image_paths = sorted(glob.glob(os.path.join(base_path, "*.tif")))  # List of tif files
     if not image_paths:
         print(f"No images found {base_path}")
@@ -168,13 +168,13 @@ def segment_cells(args):
     data_dir = os.path.join(output_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
 
-    # make a global .csv fro each images
+    # Make a global .csv fro each images
     csv_masks_file = os.path.join(output_dir, f"mask_measurements_{base_folder}.csv")
     with open(csv_masks_file, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["Image_Name", "Mask_ID", "Centroid_X", "Centroid_Y", "Area", "Equivalent_Diameter"])
 
-    # load SAM2
+    # Load SAM2
     checkpoint = "/home/killian/sam2/checkpoints/sam2.1_hiera_small.pt"
     model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
 
